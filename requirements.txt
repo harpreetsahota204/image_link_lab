@@ -1,0 +1,13 @@
+# Requires fiftyone>=1.22.1, installed separately
+
+# Perceptual hashes (pHash, dHash, PDQ)
+imagehash>=4.3
+pdqhash>=0.2.8
+
+# Zoo embedding models (CLIP, OpenCLIP, DINOv2)
+torch>=2.0
+torchvision>=0.15
+open_clip_torch>=2.20
+
+# Test-only
+pytest>=8.0
