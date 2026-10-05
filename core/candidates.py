@@ -1,65 +1,95 @@
 """
-Candidate generation: the top-k nearest pool images per query, per signal.
+Candidate gathering: for each query, the few originals worth considering.
+
+Pure numpy; the FiftyOne glue in ``engine.py`` supplies the matrices.
 """
 import numpy as np
 
 
-def top_k(scores, k, higher_is_better, exclude=None):
-    """Returns the indices of the best ``k`` pool items for each query.
+def top_k_indices(matrix, k, higher_is_better, exclude=None):
+    """Returns the ``k`` best pool columns for each query row.
 
     Args:
-        scores: a ``num_queries x num_pool`` array
-        k: the number of candidates per query
-        higher_is_better: whether larger scores are better
-        exclude (None): an optional boolean mask of the same shape as
-            ``scores`` marking pairs that can never be candidates, such as an
-            image paired with itself
+        matrix: a ``num_queries x num_pool`` array
+        k: how many columns to keep per row
+        higher_is_better: whether large values are better
+        exclude (None): an optional boolean mask of pairs to skip
 
     Returns:
-        a ``num_queries x min(k, num_pool)`` int array, best first
+        a ``num_queries x k`` int array of column indices
     """
-    scores = np.asarray(scores, dtype=np.float64)
-    num_pool = scores.shape[1]
-    k = min(k, num_pool)
+    scores = np.asarray(matrix, dtype=np.float32)
+    if not higher_is_better:
+        scores = -scores
+
+    if exclude is not None:
+        scores = np.where(exclude, -np.inf, scores)
+
+    k = min(k, scores.shape[1])
     if k <= 0:
-        return np.zeros((scores.shape[0], 0), dtype=np.int64)
+        return np.zeros((scores.shape[0], 0), dtype=int)
 
-    keyed = -scores if higher_is_better else scores.copy()
-    if exclude is not None:
-        keyed[exclude] = np.inf
-
-    part = np.argpartition(keyed, k - 1, axis=1)[:, :k]
-    order = np.take_along_axis(keyed, part, axis=1).argsort(axis=1)
-    best = np.take_along_axis(part, order, axis=1)
-
-    if exclude is not None:
-        valid = ~np.take_along_axis(exclude, best, axis=1)
-        best = np.where(valid, best, -1)
-
-    return best
+    part = np.argpartition(-scores, k - 1, axis=1)[:, :k]
+    order = np.argsort(-np.take_along_axis(scores, part, axis=1), axis=1)
+    return np.take_along_axis(part, order, axis=1)
 
 
-def union_candidates(per_signal_indices):
-    """Unions the per-signal candidate indices for each query.
+def build_candidates(
+    query_ids,
+    pool_ids,
+    pool_sample_ids,
+    phash,
+    clip,
+    k,
+    truth=None,
+    exclude=None,
+):
+    """Builds each query's candidate list: the ``k`` nearest originals by
+    pHash, the ``k`` nearest by CLIP, and the true original if known.
 
     Args:
-        per_signal_indices: a dict mapping signal names to the arrays
-            returned by :func:`top_k`
+        query_ids: a list of query identities
+        pool_ids: a list of pool identities
+        pool_sample_ids: the pool's sample IDs, aligned with ``pool_ids``
+        phash: a ``num_queries x num_pool`` array of differing bits
+        clip: a ``num_queries x num_pool`` array of cosine similarities
+        k: candidates to keep per signal
+        truth (None): an optional list, aligned with ``query_ids``, of the
+            true original's identity (or None) for each query
+        exclude (None): an optional boolean mask of pairs to skip
 
     Returns:
-        a list with one sorted list of pool indices per query
+        a list with one list of candidate dicts per query
     """
-    arrays = list(per_signal_indices.values())
-    if not arrays:
-        return []
+    by_phash = top_k_indices(phash, k, higher_is_better=False, exclude=exclude)
+    by_clip = top_k_indices(clip, k, higher_is_better=True, exclude=exclude)
+    pool_index = {pid: j for j, pid in enumerate(pool_ids)}
 
-    num_queries = arrays[0].shape[0]
-    candidates = []
-    for i in range(num_queries):
-        idx = set()
-        for arr in arrays:
-            idx.update(int(j) for j in arr[i] if j >= 0)
+    out = []
+    for i in range(len(query_ids)):
+        cols = []
+        for j in list(by_phash[i]) + list(by_clip[i]):
+            if j not in cols:
+                cols.append(int(j))
 
-        candidates.append(sorted(idx))
+        truth_id = truth[i] if truth is not None else None
+        truth_col = pool_index.get(truth_id) if truth_id is not None else None
+        if truth_col is not None and truth_col not in cols:
+            cols.append(truth_col)
 
-    return candidates
+        candidates = []
+        for j in cols:
+            record = {
+                "sample_id": pool_sample_ids[j],
+                "original": pool_ids[j],
+                "phash": int(phash[i, j]),
+                "clip": round(float(clip[i, j]), 4),
+            }
+            if truth is not None:
+                record["is_truth"] = truth_id is not None and j == truth_col
+
+            candidates.append(record)
+
+        out.append(candidates)
+
+    return out

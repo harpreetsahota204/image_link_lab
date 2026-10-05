@@ -1,0 +1,128 @@
+{
+  "_comment": "Shared by tests/test_rule.py and js/src/__tests__/rule.test.ts so the Python and JS rules agree",
+  "cases": [
+    {
+      "name": "any: phash alone links",
+      "rule": {"phash_max": 10, "clip_min": 0.9, "combine": "any"},
+      "candidate": {"phash": 4, "clip": 0.5, "is_truth": true},
+      "passes": true,
+      "strength": 1,
+      "state": "right"
+    },
+    {
+      "name": "any: clip alone links, wrong original",
+      "rule": {"phash_max": 10, "clip_min": 0.9, "combine": "any"},
+      "candidate": {"phash": 30, "clip": 0.95, "is_truth": false},
+      "passes": true,
+      "strength": 1,
+      "state": "wrong"
+    },
+    {
+      "name": "any: neither passes, true original is missed",
+      "rule": {"phash_max": 10, "clip_min": 0.9, "combine": "any"},
+      "candidate": {"phash": 30, "clip": 0.6, "is_truth": true},
+      "passes": false,
+      "strength": 0,
+      "state": "missed"
+    },
+    {
+      "name": "any: neither passes, not the original",
+      "rule": {"phash_max": 10, "clip_min": 0.9, "combine": "any"},
+      "candidate": {"phash": 30, "clip": 0.6, "is_truth": false},
+      "passes": false,
+      "strength": 0,
+      "state": "none"
+    },
+    {
+      "name": "all: one signal is not enough",
+      "rule": {"phash_max": 10, "clip_min": 0.9, "combine": "all"},
+      "candidate": {"phash": 4, "clip": 0.5, "is_truth": true},
+      "passes": false,
+      "strength": 1,
+      "state": "missed"
+    },
+    {
+      "name": "all: both pass",
+      "rule": {"phash_max": 10, "clip_min": 0.9, "combine": "all"},
+      "candidate": {"phash": 10, "clip": 0.9, "is_truth": true},
+      "passes": true,
+      "strength": 2,
+      "state": "right"
+    },
+    {
+      "name": "phash only: clip is ignored",
+      "rule": {"phash_max": 10, "clip_min": null, "combine": "all"},
+      "candidate": {"phash": 10, "clip": 0.1, "is_truth": true},
+      "passes": true,
+      "strength": 1,
+      "state": "right"
+    },
+    {
+      "name": "clip only: phash is ignored",
+      "rule": {"phash_max": null, "clip_min": 0.9, "combine": "any"},
+      "candidate": {"phash": 60, "clip": 0.9, "is_truth": false},
+      "passes": true,
+      "strength": 1,
+      "state": "wrong"
+    },
+    {
+      "name": "no truth information: a link is drawn as right",
+      "rule": {"phash_max": 10, "clip_min": 0.9, "combine": "any"},
+      "candidate": {"phash": 4, "clip": 0.5},
+      "passes": true,
+      "strength": 1,
+      "state": "right"
+    },
+    {
+      "name": "no truth information: no link is none",
+      "rule": {"phash_max": 10, "clip_min": 0.9, "combine": "any"},
+      "candidate": {"phash": 40, "clip": 0.5},
+      "passes": false,
+      "strength": 0,
+      "state": "none"
+    },
+    {
+      "name": "missing signal value fails that signal",
+      "rule": {"phash_max": 10, "clip_min": 0.9, "combine": "any"},
+      "candidate": {"phash": null, "clip": 0.95, "is_truth": true},
+      "passes": true,
+      "strength": 1,
+      "state": "right"
+    }
+  ],
+  "pick": [
+    {
+      "name": "prefers the candidate passing both signals",
+      "rule": {"phash_max": 10, "clip_min": 0.9, "combine": "any"},
+      "candidates": [
+        {"original": "A", "phash": 4, "clip": 0.5},
+        {"original": "B", "phash": 8, "clip": 0.95},
+        {"original": "C", "phash": 40, "clip": 0.3}
+      ],
+      "picked": "B"
+    },
+    {
+      "name": "ties on strength break on clip",
+      "rule": {"phash_max": 10, "clip_min": 0.9, "combine": "any"},
+      "candidates": [
+        {"original": "A", "phash": 4, "clip": 0.80},
+        {"original": "B", "phash": 2, "clip": 0.85}
+      ],
+      "picked": "B"
+    },
+    {
+      "name": "nothing passes",
+      "rule": {"phash_max": 10, "clip_min": 0.9, "combine": "all"},
+      "candidates": [
+        {"original": "A", "phash": 4, "clip": 0.80}
+      ],
+      "picked": null
+    }
+  ],
+  "keys": [
+    {"rule": {"phash_max": 10, "clip_min": 0.9, "combine": "any"}, "key": "copies_phash10_or_clip90"},
+    {"rule": {"phash_max": 10, "clip_min": 0.9, "combine": "all"}, "key": "copies_phash10_and_clip90"},
+    {"rule": {"phash_max": 12, "clip_min": null, "combine": "any"}, "key": "copies_phash12"},
+    {"rule": {"phash_max": null, "clip_min": 0.875, "combine": "any"}, "key": "copies_clip88"}
+  ]
+}

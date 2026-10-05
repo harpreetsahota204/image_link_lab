@@ -1,13 +1,13 @@
 import { PluginComponentType, registerComponent } from "@fiftyone/plugins";
-import LinkLabView from "./LinkLabView";
+import CopyGraphView from "./CopyGraphView";
 import { ensureTheme } from "./theme";
 
 ensureTheme();
 
 registerComponent({
-  name: "LinkLabView",
-  label: "LinkLabView",
-  component: LinkLabView,
+  name: "CopyGraphView",
+  label: "CopyGraphView",
+  component: CopyGraphView,
   type: PluginComponentType.Component,
   activator: () => true,
 });

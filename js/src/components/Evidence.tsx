@@ -4,181 +4,191 @@ import {
   Button,
   Orientation,
   Pill,
-  SemanticColor,
   Size,
   Spacing,
   Stack,
-  StatusColor,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
   Text,
   TextColor,
   TextVariant,
   Variant,
 } from "@voxel51/voodo";
 import React from "react";
-import type { Evidence as EvidenceData, EvidenceLink } from "../types";
-import { formatValue } from "../utils";
-import Section from "./Section";
-
-const VERDICT_STYLE = {
-  correct: { label: "correct", color: StatusColor.ApprovedBg },
-  wrong: { label: "wrong", color: StatusColor.FailedBg },
-  missed: { label: "missed", color: StatusColor.ReviewBg },
-} as const;
+import { STATE_COLORS, STATE_LABELS } from "../colors";
+import { signalResults } from "../rule";
+import type { Edge, Rule } from "../types";
 
 type Props = {
-  evidence: EvidenceData | null | undefined;
-  onShowInGrid: (sampleId: string) => void;
+  edge: Edge | null;
+  rule: Rule;
+  onShowPair: (ids: string[]) => void;
+  onOpen: (id: string) => void;
 };
 
-export default function Evidence({ evidence, onShowInGrid }: Props) {
-  if (!evidence) {
+export default function Evidence({ edge, rule, onShowPair, onOpen }: Props) {
+  if (!edge) {
     return (
-      <Section title="Why this link?" subtitle="Select exactly one sample in the grid to see every link it got, with the evidence behind each.">
-        <Text variant={TextVariant.Sm} color={TextColor.Secondary}>
-          Nothing selected.
+      <Stack orientation={Orientation.Column} spacing={Spacing.Sm}>
+        <Text variant={TextVariant.HeadingXs}>Evidence</Text>
+        <Text variant={TextVariant.BodySecondary} color={TextColor.Secondary}>
+          Click a line to see why it's there: both images, each signal against its limit, and the verdict.
         </Text>
-      </Section>
+        <Text variant={TextVariant.BodySecondary} color={TextColor.Secondary}>
+          Click an image to select it in the grid; double-click to open it.
+        </Text>
+        <Legend />
+      </Stack>
     );
   }
 
-  const rows: EvidenceLink[] = evidence.missed
-    ? [...evidence.links, evidence.missed]
-    : evidence.links;
+  const results = signalResults(edge.candidate, rule);
+  const pillColor =
+    edge.state === "right" ? TextColor.Success
+    : edge.state === "wrong" ? TextColor.Failure
+    : edge.state === "missed" ? TextColor.Warning
+    : TextColor.Secondary;
 
   return (
-    <Section
-      title="Why this link?"
-      subtitle={
-        evidence.truth
-          ? `${evidence.identity}: known link is ${evidence.truth}`
-          : evidence.identity
-      }
-      action={
-        <Button variant={Variant.Secondary} size={Size.Sm} onClick={() => onShowInGrid(evidence.sample_id)}>
-          Show in grid
-        </Button>
-      }
-    >
-      <Stack orientation={Orientation.Row} spacing={Spacing.Md} align={Align.Start}>
-        <Thumb filepath={evidence.filepath} size={96} />
-        <Stack orientation={Orientation.Column} spacing={Spacing.Xs} style={{ flex: 1 }}>
-          {!evidence.is_query && (
-            <Text variant={TextVariant.Sm} color={TextColor.Warning}>
-              This sample was not a query in this run.
-            </Text>
-          )}
-          {evidence.is_query && !evidence.links.length && (
-            <Text variant={TextVariant.Sm} color={TextColor.Secondary}>
-              No candidate passed the rule.
-            </Text>
-          )}
-          {evidence.missed && <MissedExplanation evidence={evidence} />}
-        </Stack>
+    <Stack orientation={Orientation.Column} spacing={Spacing.Md}>
+      <Stack orientation={Orientation.Row} spacing={Spacing.Sm} align={Align.Center}>
+        <Text variant={TextVariant.HeadingXs}>Evidence</Text>
+        <Pill isStatus size={Size.Sm} color={pillColor}>{STATE_LABELS[edge.state]}</Pill>
       </Stack>
 
-      {rows.length > 0 && (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Linked image</TableHead>
-              {evidence.signals.map((s) => (
-                <TableHead key={s.name}>{s.name}</TableHead>
-              ))}
-              <TableHead>Fused</TableHead>
-              <TableHead>Verdict</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((link) => (
-              <TableRow key={`${link.verdict}-${link.target_id}`}>
-                <TableCell>
-                  <Stack orientation={Orientation.Row} spacing={Spacing.Sm} align={Align.Center}>
-                    <Thumb filepath={link.filepath} size={40} />
-                    <Text variant={TextVariant.Sm}>{link.target_id}</Text>
-                  </Stack>
-                </TableCell>
-                {evidence.signals.map((s) => {
-                  const passed = link.passed.includes(s.name);
-                  return (
-                    <TableCell key={s.name}>
-                      <Pill
-                        size={Size.Xs}
-                        color={passed ? TextColor.Foreground : TextColor.Muted}
-                        backgroundColor={passed ? SemanticColor.Success : undefined}
-                      >
-                        {formatValue(s.kind, link.signals[s.name])}
-                      </Pill>
-                    </TableCell>
-                  );
-                })}
-                <TableCell>
-                  <Text variant={TextVariant.Sm}>
-                    {link.fused !== undefined ? link.fused.toFixed(2) : "–"}
-                  </Text>
-                </TableCell>
-                <TableCell>
-                  {link.verdict ? (
-                    <Pill isStatus size={Size.Xs} backgroundColor={VERDICT_STYLE[link.verdict].color}>
-                      {VERDICT_STYLE[link.verdict].label}
-                    </Pill>
-                  ) : (
-                    <Text variant={TextVariant.Sm} color={TextColor.Secondary}>
-                      {link.direction}
-                    </Text>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      )}
-    </Section>
-  );
-}
+      <Stack orientation={Orientation.Row} spacing={Spacing.Md} align={Align.Start}>
+        <Thumb src={getSampleSrc(edge.query.filepath)} caption="Copy" identity={edge.query.identity} />
+        <div style={{ alignSelf: "center", width: 28, height: 0, borderTop: `3px solid ${STATE_COLORS[edge.state]}` }} />
+        <Thumb src={getSampleSrc(edge.original.filepath)} caption="Original" identity={edge.original.identity} />
+      </Stack>
 
-function MissedExplanation({ evidence }: { evidence: EvidenceData }) {
-  const missed = evidence.missed!;
-  const reasons = evidence.signals.map((s) => {
-    const value = missed.signals[s.name];
-    const ok = missed.passed.includes(s.name);
-    const op = s.kind === "hash" ? "≤" : "≥";
-    return `${s.name} ${formatValue(s.kind, value)} (needs ${op} ${formatValue(s.kind, s.threshold)}) ${ok ? "passed" : "failed"}`;
-  });
-  const passedSome = missed.passed.length > 0;
+      <Stack orientation={Orientation.Column} spacing={Spacing.Xs}>
+        <SignalRow
+          name="pHash"
+          what="pixels"
+          used={rule.phash_max !== null}
+          value={edge.candidate.phash === null ? "n/a" : `${edge.candidate.phash} bits differ`}
+          limit={rule.phash_max === null ? "" : `limit ≤ ${rule.phash_max}`}
+          passed={results.phash}
+        />
+        <SignalRow
+          name="CLIP"
+          what="meaning"
+          used={rule.clip_min !== null}
+          value={edge.candidate.clip === null ? "n/a" : `${edge.candidate.clip.toFixed(3)} similar`}
+          limit={rule.clip_min === null ? "" : `limit ≥ ${rule.clip_min.toFixed(2)}`}
+          passed={results.clip}
+        />
+      </Stack>
 
-  return (
-    <Stack orientation={Orientation.Column} spacing={Spacing.Xs}>
-      <Text variant={TextVariant.Sm}>
-        The true link {missed.target_id} was missed.
-        {passedSome
-          ? " It passed some thresholds, so the combine rule or the candidate limit dropped it."
-          : " No signal passed its threshold."}
-      </Text>
-      {reasons.map((r) => (
-        <Text key={r} variant={TextVariant.Sm} color={TextColor.Secondary}>
-          • {r}
-        </Text>
-      ))}
+      <Text variant={TextVariant.BodySecondary}>{verdict(edge, rule, results)}</Text>
+
+      <Stack orientation={Orientation.Row} spacing={Spacing.Sm}>
+        <Button size={Size.Sm} variant={Variant.Secondary} onClick={() => onShowPair([edge.query.id, edge.original.id])}>
+          Show pair in grid
+        </Button>
+        <Button size={Size.Sm} variant={Variant.Secondary} onClick={() => onOpen(edge.query.id)}>
+          Open copy
+        </Button>
+      </Stack>
     </Stack>
   );
 }
 
-function Thumb({ filepath, size }: { filepath: string | null; size: number }) {
-  if (!filepath) {
-    return <div style={{ width: size, height: size, borderRadius: 4, background: "rgba(255,255,255,0.06)" }} />;
-  }
+function Thumb({ src, caption, identity }: { src: string; caption: string; identity: string }) {
   return (
-    <img
-      src={getSampleSrc(filepath)}
-      alt=""
-      loading="lazy"
-      style={{ width: size, height: size, objectFit: "cover", borderRadius: 4 }}
-    />
+    <Stack orientation={Orientation.Column} spacing={Spacing.Xs} align={Align.Center}>
+      <img
+        src={src}
+        alt={caption}
+        style={{ width: 110, height: 110, objectFit: "cover", borderRadius: 8, display: "block" }}
+      />
+      <Text variant={TextVariant.Caption} color={TextColor.Secondary}>{caption}</Text>
+      <Text variant={TextVariant.CodeSecondary} title={identity} style={{ maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {identity}
+      </Text>
+    </Stack>
+  );
+}
+
+function SignalRow({
+  name,
+  what,
+  used,
+  value,
+  limit,
+  passed,
+}: {
+  name: string;
+  what: string;
+  used: boolean;
+  value: string;
+  limit: string;
+  passed?: boolean;
+}) {
+  return (
+    <Stack orientation={Orientation.Row} spacing={Spacing.Sm} align={Align.Center} style={{ opacity: used ? 1 : 0.5 }}>
+      <Text variant={TextVariant.BodySecondary} style={{ width: 52, fontWeight: 600 }}>{name}</Text>
+      <Text variant={TextVariant.Caption} color={TextColor.Secondary} style={{ width: 56 }}>{what}</Text>
+      <Text variant={TextVariant.BodySecondary} style={{ flex: 1 }}>{value}</Text>
+      {used ? (
+        <>
+          <Text variant={TextVariant.Caption} color={TextColor.Secondary}>{limit}</Text>
+          <Text
+            variant={TextVariant.BodySecondary}
+            color={passed ? TextColor.Success : TextColor.Failure}
+            style={{ fontWeight: 600 }}
+          >
+            {passed ? "passes" : "fails"}
+          </Text>
+        </>
+      ) : (
+        <Text variant={TextVariant.Caption} color={TextColor.Secondary}>not used</Text>
+      )}
+    </Stack>
+  );
+}
+
+function verdict(edge: Edge, rule: Rule, results: { phash?: boolean; clip?: boolean }): string {
+  const passed = Object.entries(results).filter(([, ok]) => ok).map(([k]) => k === "phash" ? "pHash" : "CLIP");
+  const failed = Object.entries(results).filter(([, ok]) => !ok).map(([k]) => k === "phash" ? "pHash" : "CLIP");
+  const both = results.phash !== undefined && results.clip !== undefined;
+  const how = both ? (rule.combine === "all" ? "both must agree" : "either signal is enough") : "";
+
+  let why: string;
+  if (edge.state === "right" || edge.state === "wrong") {
+    why = `Linked because ${passed.join(" and ")} passed${how ? ` (${how})` : ""}.`;
+  } else if (both && rule.combine === "all" && passed.length === 1) {
+    why = `Not linked: ${passed[0]} passed but ${failed[0]} didn't, and the rule needs both.`;
+  } else {
+    why = `Not linked: ${failed.join(" and ")} ${failed.length > 1 ? "are" : "is"} outside the limit.`;
+  }
+
+  const truth = edge.candidate.is_truth;
+  if (truth === undefined) return why;
+  if (edge.state === "right") return `${why} This is the true original.`;
+  if (edge.state === "wrong") {
+    return `${why} It is not the true original${edge.query.truth ? ` (that is ${edge.query.truth})` : ""}.`;
+  }
+  if (edge.state === "missed") return `${why} This is the true original, so the rule missed it.`;
+  return `${why} It is not the true original, so leaving it unlinked is correct.`;
+}
+
+function Legend() {
+  const row = (state: Edge["state"], text: string, dashed = false) => (
+    <Stack key={state} orientation={Orientation.Row} spacing={Spacing.Sm} align={Align.Center}>
+      <svg width={28} height={6}>
+        <line x1={0} y1={3} x2={28} y2={3} stroke={STATE_COLORS[state]} strokeWidth={3} strokeDasharray={dashed ? "5 4" : undefined} />
+      </svg>
+      <Text variant={TextVariant.Caption} color={TextColor.Secondary}>{text}</Text>
+    </Stack>
+  );
+  return (
+    <Stack orientation={Orientation.Column} spacing={Spacing.Xs} style={{ marginTop: 8 }}>
+      {row("right", "right link: the rule linked a copy to its true original")}
+      {row("wrong", "wrong link: linked, but not the true original")}
+      {row("missed", "missed: the true original, not linked", true)}
+      <Text variant={TextVariant.Caption} color={TextColor.Secondary}>
+        Thick lines pass both signals; thin lines pass one.
+      </Text>
+    </Stack>
   );
 }

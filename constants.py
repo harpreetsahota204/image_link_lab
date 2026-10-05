@@ -1,35 +1,41 @@
 """
 Image Link Lab constants.
 """
-from enum import Enum
 
+PLUGIN_URI = "@harpreetsahota/image_link_lab"
 STORE_NAME = "image_link_lab"
-FORM_KEY = "form:v1"
-SIGNALS_STATUS_KEY = "signals:status"
-SIGNALS_PROGRESS_KEY = "signals:progress"
+SETTINGS_KEY = "settings"
 
-HASH_FIELD_PREFIX = "sig_"
-LINKS_FIELD_PREFIX = "links_"
+# Signals
+PHASH_FIELD = "phash"
+PHASH_BRAIN_KEY = "phash"
+PHASH_BITS = 64
+CLIP_BRAIN_KEY = "clip"
+CLIP_MODEL = "clip-vit-base32-torch"
 
-DEFAULT_EMBEDDING_MODEL = "clip-vit-base32-torch"
-DEFAULT_EMBEDDING_BRAIN_KEY = "sig_clip"
+# Results written by find_copies
+OUTPUT_FIELD = "copy_of"
+CANDIDATES_SUFFIX = "_candidates"
+GT_SUFFIX = "_gt"
+PRED_SUFFIX = "_pred"
 
-DEFAULT_TOP_K = 10
-DEFAULT_HASH_THRESHOLDS = {"phash": 16, "dhash": 16, "pdq": 90}
-DEFAULT_EMBEDDING_THRESHOLD = 0.8
+# Binary evaluation labels
+COPY = "copy"
+UNIQUE = "unique"
+NONE_LABEL = "none"
 
-# Pairwise matrices are dense, so cap their size to keep runs interactive
-MAX_PAIRS = 50_000_000
+# Candidate gathering
+CANDIDATES_PER_SIGNAL = 5
 
+# Starting rule
+DEFAULT_PHASH_MAX = 10
+DEFAULT_CLIP_MIN = 0.90
+DEFAULT_COMBINE = "any"
+
+# Scopes
 SCOPE_VIEW = "view"
 SCOPE_DATASET = "dataset"
 SCOPE_TAG_PREFIX = "tag:"
 
-
-class RunStatus(str, Enum):
-    """Statuses a link run can be in."""
-
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
+# The graph draws at most this many queries at once
+MAX_GRAPH_QUERIES = 40

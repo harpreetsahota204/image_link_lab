@@ -1,6 +1,6 @@
 name: "@harpreetsahota/image_link_lab"
-description: Combine image-similarity signals with your own rule, score it against known links, and explain every link it makes
-version: 1.0.0
+description: Find edited copies of images with pHash and CLIP, see the links as a graph, and read the evidence behind every one
+version: 2.0.0
 fiftyone:
   version: ">=1.22.1"
 author: Harpreet Sahota
@@ -8,9 +8,6 @@ license: Apache 2.0
 js_bundle: ./js/dist/index.umd.js
 operators:
   - compute_signals
-  - run_rule
-  - open_misses_in_grid
-  - open_links_in_grid
-  - link_lab_store_notifier
+  - find_copies
 panels:
-  - link_lab
+  - copy_graph

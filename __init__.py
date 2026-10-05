@@ -1,20 +1,13 @@
 """
-Image Link Lab plugin.
+Image Link Lab: find edited copies of images, see the links as a graph,
+and read the evidence behind every one.
 """
 from .operators.compute_signals import ComputeSignals
-from .operators.helpers import (
-    LinkLabStoreNotifier,
-    OpenLinksInGrid,
-    OpenMissesInGrid,
-)
-from .operators.run_rule import RunRule
-from .panels.link_lab import LinkLabPanel
+from .operators.find_copies import FindCopies
+from .panels.copy_graph import CopyGraphPanel
 
 
 def register(p):
     p.register(ComputeSignals)
-    p.register(RunRule)
-    p.register(OpenMissesInGrid)
-    p.register(OpenLinksInGrid)
-    p.register(LinkLabStoreNotifier)
-    p.register(LinkLabPanel)
+    p.register(FindCopies)
+    p.register(CopyGraphPanel)

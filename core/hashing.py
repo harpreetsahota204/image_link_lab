@@ -1,40 +1,26 @@
 """
-Perceptual hashes and pairwise similarity matrices.
+Perceptual hashing and pairwise distances.
 
 No FiftyOne imports: these functions work on PIL images, hex strings and
 numpy arrays so they can be unit-tested and reused in a notebook.
 """
 import numpy as np
 
-HASH_BITS = {"phash": 64, "dhash": 64, "pdq": 256}
-HASH_SIGNALS = tuple(HASH_BITS)
-
 _POPCOUNT_U8 = np.array([bin(i).count("1") for i in range(256)], dtype=np.uint8)
 
 
-def compute_hash(name, image):
-    """Computes a perceptual hash of an image.
+def compute_phash(image):
+    """Computes the 64-bit perceptual hash of an image.
 
     Args:
-        name: one of ``"phash"``, ``"dhash"`` or ``"pdq"``
         image: a ``PIL.Image.Image``
 
     Returns:
-        the hash as a lowercase hex string
+        the hash as a 16-character lowercase hex string
     """
-    if name in ("phash", "dhash"):
-        import imagehash
+    import imagehash
 
-        hash_fn = imagehash.phash if name == "phash" else imagehash.dhash
-        return str(hash_fn(image))
-
-    if name == "pdq":
-        import pdqhash
-
-        bits, _ = pdqhash.compute(np.asarray(image.convert("RGB")))
-        return np.packbits(bits.astype(np.uint8)).tobytes().hex()
-
-    raise ValueError("Unsupported hash '%s'" % name)
+    return str(imagehash.phash(image))
 
 
 def hex_to_bytes(hashes):
@@ -54,6 +40,19 @@ def hex_to_bytes(hashes):
     ).reshape(len(hashes), -1)
 
 
+def hex_to_bits(hashes):
+    """Converts hex hash strings to a float32 matrix of 0/1 bits, suitable
+    for a native similarity index.
+
+    Args:
+        hashes: a list of equal-length hex strings
+
+    Returns:
+        a ``num_hashes x num_bits`` float32 array
+    """
+    return np.unpackbits(hex_to_bytes(hashes), axis=1).astype(np.float32)
+
+
 def hamming_matrix(query_hashes, pool_hashes, chunk_size=256):
     """Computes pairwise Hamming distances between two sets of hashes.
 
@@ -63,7 +62,7 @@ def hamming_matrix(query_hashes, pool_hashes, chunk_size=256):
         chunk_size (256): number of query rows to process at a time
 
     Returns:
-        a ``num_queries x num_pool`` int array of bit distances
+        a ``num_queries x num_pool`` int32 array of differing bits
     """
     q = hex_to_bytes(query_hashes)
     p = hex_to_bytes(pool_hashes)

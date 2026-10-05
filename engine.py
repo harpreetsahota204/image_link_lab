@@ -1,92 +1,78 @@
 """
-FiftyOne glue: resolves views and signals, runs the core rule logic, writes
-links to samples and records the run.
+FiftyOne glue: computes the two signals, gathers candidates, applies the
+rule, writes results and scores them with a native evaluation.
 
-Both the ``run_rule`` operator and the panel call :func:`run_link_rule`, so a
-run behaves the same whether it starts from the panel, the operator browser,
-the MCP server or a script.
+Both operators and the panel call these functions, so a step behaves the
+same whether it starts from a form, the panel, a notebook or an agent.
 """
-import hashlib
 import logging
-from collections import OrderedDict
+from datetime import datetime, timezone
 
 import numpy as np
+from PIL import Image
+
+import fiftyone as fo
 
 from .constants import (
-    DEFAULT_EMBEDDING_THRESHOLD,
-    DEFAULT_HASH_THRESHOLDS,
-    DEFAULT_TOP_K,
-    HASH_FIELD_PREFIX,
-    LINKS_FIELD_PREFIX,
-    MAX_PAIRS,
+    CANDIDATES_PER_SIGNAL,
+    CANDIDATES_SUFFIX,
+    CLIP_BRAIN_KEY,
+    CLIP_MODEL,
+    COPY,
+    GT_SUFFIX,
+    MAX_GRAPH_QUERIES,
+    NONE_LABEL,
+    OUTPUT_FIELD,
+    PHASH_BITS,
+    PHASH_BRAIN_KEY,
+    PHASH_FIELD,
+    PRED_SUFFIX,
     SCOPE_DATASET,
     SCOPE_TAG_PREFIX,
     SCOPE_VIEW,
-    SIGNALS_STATUS_KEY,
-    RunStatus,
+    SETTINGS_KEY,
+    STORE_NAME,
+    UNIQUE,
 )
 from .core import candidates as ilc
-from .core import evaluate as ile
-from .core import rules as ilr
-from .core import signals as ils
-from .run_manager import RunManager, get_store, now_iso
+from .core import hashing as ilh
+from .core import rule as ilr
 
 logger = logging.getLogger(__name__)
 
-_MATRIX_CACHE = OrderedDict()
-_MATRIX_CACHE_SIZE = 4
+_HASH_CHUNK = 256
+_QUERY_CHUNK = 256
 
 
-def list_available_signals(dataset):
-    """Lists the signals a rule can use on a dataset.
-
-    Hash signals are ``sig_phash``, ``sig_dhash`` and ``sig_pdq`` fields.
-    Embedding signals are any similarity brain run, so indexes built outside
-    this plugin can be used too.
-
-    Args:
-        dataset: a :class:`fiftyone.core.dataset.Dataset`
-
-    Returns:
-        a list of signal dicts with ``name``, ``kind`` and ``source`` keys
-    """
-    schema = dataset.get_field_schema()
-    available = []
-    for name, bits in ils.HASH_BITS.items():
-        field = HASH_FIELD_PREFIX + name
-        if field in schema:
-            available.append(
-                {"name": name, "kind": "hash", "source": field, "bits": bits}
-            )
-
-    for key in dataset.list_brain_runs(type="similarity"):
-        try:
-            config = dataset.get_brain_info(key).config
-            model = getattr(config, "model", None)
-        except Exception as e:
-            logger.warning("Failed to load brain info for %s: %s", key, e)
-            model = None
-
-        available.append(
-            {"name": key, "kind": "embedding", "source": key, "model": model}
-        )
-
-    return available
+# -- Settings --
 
 
-def default_threshold(signal):
-    """Returns the starting threshold for a signal.
+def get_store(ctx):
+    """Returns the plugin's execution store for the context's dataset."""
+    return ctx.store(STORE_NAME)
 
-    Args:
-        signal: a signal dict with ``name`` and ``kind`` keys
 
-    Returns:
-        a max bit distance for hashes, or a min cosine similarity
-    """
-    if signal["kind"] == "hash":
-        return DEFAULT_HASH_THRESHOLDS.get(signal["name"], 16)
+def load_settings(ctx):
+    """Returns the saved ``find_copies`` settings, or None."""
+    return get_store(ctx).get(SETTINGS_KEY)
 
-    return DEFAULT_EMBEDDING_THRESHOLD
+
+def save_settings(ctx, settings):
+    """Saves the ``find_copies`` settings."""
+    settings = dict(settings, updated_at=_now_iso())
+    get_store(ctx).set(SETTINGS_KEY, settings)
+    return settings
+
+
+# -- Scopes --
+
+
+def scope_choices(dataset):
+    """Returns the ``(value, label)`` scope choices for a dataset."""
+    return [(SCOPE_VIEW, "Current view"), (SCOPE_DATASET, "Whole dataset")] + [
+        (SCOPE_TAG_PREFIX + tag, "Tag: %s" % tag)
+        for tag in sorted(dataset.distinct("tags"))
+    ]
 
 
 def resolve_scope(ctx, scope):
@@ -94,8 +80,7 @@ def resolve_scope(ctx, scope):
 
     Args:
         ctx: an :class:`fiftyone.operators.ExecutionContext`
-        scope: ``"view"`` (the App's current view), ``"dataset"``, or
-            ``"tag:<tag>"``
+        scope: ``"view"``, ``"dataset"`` or ``"tag:<tag>"``
 
     Returns:
         a :class:`fiftyone.core.collections.SampleCollection`
@@ -112,365 +97,234 @@ def resolve_scope(ctx, scope):
     raise ValueError("Unsupported scope '%s'" % scope)
 
 
-def links_field_for(run_id):
-    """Returns the sample field that holds a run's links.
+def field_choices(dataset):
+    """Returns the top-level fields an ID or truth picker can offer."""
+    skip = {
+        "id",
+        "filepath",
+        "tags",
+        "metadata",
+        "created_at",
+        "last_modified_at",
+        PHASH_FIELD,
+    }
+    schema = dataset.get_field_schema(
+        ftype=(fo.StringField, fo.IntField, fo.ObjectIdField)
+    )
+    return [name for name in schema if name not in skip]
+
+
+# -- Signals --
+
+
+def signal_status(dataset):
+    """Returns which signals exist on a dataset."""
+    return {
+        "phash": dataset.has_sample_field(PHASH_FIELD),
+        "clip": CLIP_BRAIN_KEY in dataset.list_brain_runs(),
+    }
+
+
+def compute_phash(view, progress=None, skip_existing=True):
+    """Computes pHash for a view, writes it to the ``phash`` field, and
+    registers the bits as a native similarity index under brain key
+    ``phash`` so the App can sort by it.
 
     Args:
-        run_id: the run ID
+        view: a :class:`fiftyone.core.collections.SampleCollection`
+        progress (None): an optional ``function(fraction, label)``
+        skip_existing (True): skip samples that already have a hash
 
     Returns:
-        a field name
+        the number of images hashed
     """
-    return LINKS_FIELD_PREFIX + run_id.replace("-", "")[:8]
+    progress = progress or (lambda *args: None)
+    dataset = view._dataset
+    if not dataset.has_sample_field(PHASH_FIELD):
+        dataset.add_sample_field(PHASH_FIELD, fo.StringField)
+
+    todo = view.exists(PHASH_FIELD, False) if skip_existing else view
+    ids, filepaths = todo.values(["id", "filepath"])
+    total = len(ids)
+    hashed = 0
+    for start in range(0, total, _HASH_CHUNK):
+        values = {}
+        for sid, path in zip(
+            ids[start : start + _HASH_CHUNK],
+            filepaths[start : start + _HASH_CHUNK],
+        ):
+            try:
+                with Image.open(path) as img:
+                    values[sid] = ilh.compute_phash(img.convert("RGB"))
+            except Exception as e:
+                logger.warning("Failed to hash %s: %s", path, e)
+
+        if values:
+            dataset.set_values(PHASH_FIELD, values, key_field="id")
+
+        hashed += len(values)
+        done = min(start + _HASH_CHUNK, total)
+        progress(0.9 * done / max(total, 1), "Hashed %d/%d images" % (done, total))
+
+    progress(0.95, "Indexing hashes")
+    _index_phash(view)
+    return hashed
 
 
-def run_link_rule(ctx, params, progress=None):
-    """Runs a link rule and records it as a run.
+def _index_phash(view):
+    import fiftyone.brain as fob
+
+    dataset = view._dataset
+    if PHASH_BRAIN_KEY in dataset.list_brain_runs():
+        dataset.delete_brain_run(PHASH_BRAIN_KEY)
+
+    hashed = view.exists(PHASH_FIELD)
+    if len(hashed) == 0:
+        return
+
+    bits = ilh.hex_to_bits(hashed.values(PHASH_FIELD))
+    # Euclidean distance on 0/1 bits is sqrt(differing bits), so the index
+    # sorts exactly like Hamming distance
+    fob.compute_similarity(
+        hashed,
+        embeddings=bits,
+        brain_key=PHASH_BRAIN_KEY,
+        metric="euclidean",
+        progress=False,
+    )
+
+
+def compute_clip(view, batch_size=32):
+    """Builds the native CLIP similarity index under brain key ``clip``.
+
+    Args:
+        view: a :class:`fiftyone.core.collections.SampleCollection`
+        batch_size (32): the embedding batch size
+
+    Returns:
+        the brain key
+    """
+    import fiftyone.brain as fob
+
+    dataset = view._dataset
+    if CLIP_BRAIN_KEY in dataset.list_brain_runs():
+        dataset.delete_brain_run(CLIP_BRAIN_KEY)
+
+    fob.compute_similarity(
+        view,
+        model=CLIP_MODEL,
+        brain_key=CLIP_BRAIN_KEY,
+        batch_size=batch_size,
+        progress=False,
+    )
+    return CLIP_BRAIN_KEY
+
+
+# -- Candidates --
+
+
+def candidates_field(settings):
+    return settings.get("output_field", OUTPUT_FIELD) + CANDIDATES_SUFFIX
+
+
+def queries_view(dataset, settings):
+    """Returns the samples that have candidates (the queries)."""
+    field = candidates_field(settings)
+    if not dataset.has_sample_field(field):
+        return dataset.limit(0)
+
+    return dataset.exists(field)
+
+
+def gather_candidates(ctx, settings, progress=None):
+    """Finds each query's candidate originals and stores them, with both
+    signals' values, in ``<output_field>_candidates``.
 
     Args:
         ctx: an :class:`fiftyone.operators.ExecutionContext`
-        params: a dict with ``rule``, ``scope`` (``{"query", "pool"}``),
-            optional ``fields`` (``{"id", "truth", "group", "time"}``),
-            ``top_k`` and ``run_name``
+        settings: a dict with ``queries``, ``originals`` (scopes) and
+            optional ``id_field``, ``truth_field``, ``output_field``
         progress (None): an optional ``function(fraction, label)``
 
     Returns:
-        the completed run dict
+        a dict with ``queries`` and ``originals`` counts
     """
     progress = progress or (lambda *args: None)
-    manager = RunManager(ctx)
-    params = dict(params)
-    params["rule"] = dict(
-        params["rule"],
-        signals=_resolve_signals(ctx.dataset, params["rule"]["signals"]),
-    )
-    params["rule_text"] = ilr.describe_rule(params["rule"])
-    run = manager.create_run(params)
-
-    run_id = run["run_id"]
-    run["status"] = RunStatus.RUNNING.value
-    run["start_time"] = now_iso()
-    manager.set_run(run_id, run)
-
-    try:
-        _execute(ctx, run, progress)
-        run["status"] = RunStatus.COMPLETED.value
-    except Exception as e:
-        logger.error("Link run %s failed: %s", run_id, e, exc_info=True)
-        run["status"] = RunStatus.FAILED.value
-        run["status_details"] = str(e)
-        raise
-    finally:
-        run["end_time"] = now_iso()
-        manager.set_run(run_id, run)
-
-    return run
-
-
-def delete_run_links(ctx, run):
-    """Deletes the sample field holding a run's links, if it exists.
-
-    Args:
-        ctx: an :class:`fiftyone.operators.ExecutionContext`
-        run: a run dict
-    """
-    field = run.get("links_field")
-    if field and ctx.dataset.has_sample_field(field):
-        ctx.dataset.delete_sample_field(field)
-
-
-def misses_view(ctx, run, row, group):
-    """Returns the view of queries whose true link a grid cell missed.
-
-    Args:
-        ctx: an :class:`fiftyone.operators.ExecutionContext`
-        run: a run dict, including its heavy fields
-        row: a signal name, or ``"rule"`` for the combined rule
-        group: a group value
-
-    Returns:
-        a :class:`fiftyone.core.view.DatasetView`
-    """
-    sample_ids = ((run.get("misses") or {}).get(row) or {}).get(group) or []
-    return ctx.dataset.select(sample_ids, ordered=True)
-
-
-def links_view(ctx, run, sample_id):
-    """Returns a view of a sample followed by the images it links to.
-
-    Args:
-        ctx: an :class:`fiftyone.operators.ExecutionContext`
-        run: a run dict
-        sample_id: the query sample ID
-
-    Returns:
-        a :class:`fiftyone.core.view.DatasetView`
-    """
-    links = get_sample_links(ctx, run, sample_id)
-    ids = [sample_id] + [
-        link["sample_id"] for link in links if link.get("sample_id")
-    ]
-    return ctx.dataset.select(ids, ordered=True)
-
-
-def get_sample_links(ctx, run, sample_id):
-    """Returns the links a run made for one sample.
-
-    Args:
-        ctx: an :class:`fiftyone.operators.ExecutionContext`
-        run: a run dict
-        sample_id: the sample ID
-
-    Returns:
-        a list of link dicts (empty if the sample was not a query)
-    """
-    field = run.get("links_field")
-    if not field or not ctx.dataset.has_sample_field(field):
-        return []
-
-    values = ctx.dataset.select(sample_id).values(field)
-    return (values[0] if values else None) or []
-
-
-def pair_signals(ctx, signals, sample_id, target_sample_id):
-    """Computes every signal's raw value for one pair of samples, with
-    whether it passes its threshold. Used to explain a missed link.
-
-    Args:
-        ctx: an :class:`fiftyone.operators.ExecutionContext`
-        signals: a list of resolved signal dicts, as stored on a run's rule
-        sample_id: the first sample ID
-        target_sample_id: the second sample ID
-
-    Returns:
-        a dict with ``signals`` (name to raw value) and ``passed`` (names)
-    """
-    pair = ctx.dataset.select([sample_id, target_sample_id], ordered=True)
-    values = {}
-    for s in signals:
-        if s["kind"] == "hash":
-            a, b = pair.values(s["source"])
-            if a is None or b is None:
-                values[s["name"]] = s["bits"]
-            else:
-                values[s["name"]] = int(ils.hamming_matrix([a], [b])[0, 0])
-        else:
-            results = ctx.dataset.load_brain_results(s["source"])
-            emb = _embeddings_for(results, [sample_id, target_sample_id])
-            values[s["name"]] = round(
-                float(ils.cosine_matrix(emb[:1], emb[1:])[0, 0]), 4
-            )
-
-    passed = [s["name"] for s in signals if ilr.signal_passes(s, values[s["name"]])]
-    return {"signals": values, "passed": passed}
-
-
-def mark_signals_changed(ctx):
-    """Records that signals changed, which notifies panel subscribers and
-    invalidates cached matrices.
-
-    Args:
-        ctx: an :class:`fiftyone.operators.ExecutionContext`
-    """
-    get_store(ctx).set(SIGNALS_STATUS_KEY, {"updated_at": now_iso()})
-    _MATRIX_CACHE.clear()
-
-
-def _execute(ctx, run, progress):
-    rule = run["rule"]
-    scope = run["scope"]
-    fields = run.get("fields") or {}
-    top_k = int(run.get("top_k") or DEFAULT_TOP_K)
-
-    query_view = resolve_scope(ctx, scope.get("query", SCOPE_VIEW))
-    pool_view = resolve_scope(ctx, scope.get("pool", SCOPE_DATASET))
-
-    q_sids = [str(i) for i in query_view.values("id")]
-    p_sids = [str(i) for i in pool_view.values("id")]
-    if not q_sids or not p_sids:
-        raise ValueError("The query scope and the pool must both be non-empty")
-
-    if len(q_sids) * len(p_sids) > MAX_PAIRS:
+    dataset = ctx.dataset
+    status = signal_status(dataset)
+    missing = [k for k, ok in status.items() if not ok]
+    if missing:
         raise ValueError(
-            "%d queries x %d pool images is too many pairs (max %d). Narrow "
-            "the query scope or the pool"
-            % (len(q_sids), len(p_sids), MAX_PAIRS)
+            "Signals not computed: %s. Run 'Compute signals' first"
+            % ", ".join(missing)
         )
 
-    signals = rule["signals"]
+    query_view = resolve_scope(ctx, settings["queries"])
+    pool_view = resolve_scope(ctx, settings["originals"])
+    id_field = settings.get("id_field")
+    truth_field = settings.get("truth_field")
 
-    progress(0.1, "Loading signals")
-    matrices = _get_matrices(ctx, query_view, pool_view, q_sids, p_sids, signals)
+    progress(0.05, "Loading signals")
+    q_sids, q_ids, q_hashes = _load_identities(query_view, id_field)
+    p_sids, p_ids, p_hashes = _load_identities(pool_view, id_field)
+    if not q_sids or not p_sids:
+        raise ValueError("Query images and candidate originals must both be non-empty")
 
-    progress(0.5, "Generating candidates")
-    exclude = np.asarray(q_sids, dtype=object)[:, None] == np.asarray(
-        p_sids, dtype=object
-    )[None, :]
-    per_signal = {
-        s["name"]: ilc.top_k(
-            matrices[s["name"]],
-            top_k,
-            higher_is_better=s["kind"] == "embedding",
+    truth = query_view.values(truth_field) if truth_field else None
+    if truth is not None:
+        truth = [str(t) if t is not None else None for t in truth]
+
+    results = dataset.load_brain_results(CLIP_BRAIN_KEY)
+    p_emb = _embeddings_for(results, p_sids)
+    p_sid_arr = np.asarray(p_sids, dtype=object)
+
+    field = candidates_field(settings)
+    if dataset.has_sample_field(field):
+        dataset.clear_sample_field(field)
+    else:
+        dataset.add_sample_field(field, fo.ListField, subfield=fo.DictField)
+
+    total = len(q_sids)
+    for start in range(0, total, _QUERY_CHUNK):
+        stop = min(start + _QUERY_CHUNK, total)
+        chunk_sids = q_sids[start:stop]
+        q_emb = _embeddings_for(results, chunk_sids)
+        phash = ilh.hamming_matrix(
+            [h or "0" * (PHASH_BITS // 4) for h in q_hashes[start:stop]],
+            [h or "0" * (PHASH_BITS // 4) for h in p_hashes],
+        )
+        clip = ilh.cosine_matrix(q_emb, p_emb)
+        exclude = np.asarray(chunk_sids, dtype=object)[:, None] == p_sid_arr[None, :]
+        candidates = ilc.build_candidates(
+            q_ids[start:stop],
+            p_ids,
+            p_sids,
+            phash,
+            clip,
+            CANDIDATES_PER_SIGNAL,
+            truth=truth[start:stop] if truth is not None else None,
             exclude=exclude,
         )
-        for s in signals
-    }
+        dataset.set_values(field, dict(zip(chunk_sids, candidates)), key_field="id")
+        progress(0.1 + 0.85 * stop / total, "Gathered candidates for %d/%d queries" % (stop, total))
 
-    id_field = fields.get("id")
-    q_ids = _identities(query_view, id_field, q_sids)
-    p_ids = _identities(pool_view, id_field, p_sids)
-    q_times = p_times = None
-    if fields.get("time"):
-        q_times = query_view.values(fields["time"])
-        p_times = pool_view.values(fields["time"])
+    return {"queries": total, "originals": len(p_sids)}
 
-    progress(0.6, "Applying rule")
-    links = ilr.apply_rule(
-        rule,
-        q_ids,
-        p_ids,
-        matrices,
-        ilc.union_candidates(per_signal),
-        query_times=q_times,
-        pool_times=p_times,
-    )
 
-    p_sid_by_id = dict(zip(p_ids, p_sids))
-    for query_links in links:
-        for link in query_links:
-            link["sample_id"] = p_sid_by_id.get(link["target_id"])
+def _load_identities(view, id_field):
+    fields = ["id", "filepath", PHASH_FIELD]
+    if id_field:
+        fields.append(id_field)
 
-    progress(0.75, "Writing links")
-    links_field = links_field_for(run["run_id"])
-    ctx.dataset.set_values(links_field, dict(zip(q_sids, links)), key_field="id")
-    run["links_field"] = links_field
-    run["num_queries"] = len(q_sids)
-    run["num_pool"] = len(p_sids)
-    run["metrics"] = {
-        "links": sum(len(ql) for ql in links),
-        "queries_with_links": sum(1 for ql in links if ql),
-    }
-
-    if not fields.get("truth"):
-        return
-
-    progress(0.85, "Scoring")
-    truth = dict(zip(q_ids, query_view.values(fields["truth"])))
-    if fields.get("group"):
-        groups = dict(zip(q_ids, query_view.values(fields["group"])))
+    values = view.values(fields)
+    sids = [str(s) for s in values[0]]
+    hashes = values[2]
+    if id_field:
+        ids = [str(v) if v is not None else sid for v, sid in zip(values[3], sids)]
     else:
-        groups = dict.fromkeys(q_ids, "all")
+        ids = list(sids)
 
-    q_sid_by_id = dict(zip(q_ids, q_sids))
-    combined = ile.evaluate(q_ids, links, truth, groups=groups)
-
-    rows = OrderedDict()
-    for s in signals:
-        single = ilr.apply_rule(
-            {"signals": [s], "fusion": "or"},
-            q_ids,
-            p_ids,
-            matrices,
-            ilc.union_candidates({s["name"]: per_signal[s["name"]]}),
-        )
-        rows[s["name"]] = ile.evaluate(q_ids, single, truth, groups=groups)
-
-    rows["rule"] = combined
-
-    run["metrics"].update(combined["overall"])
-    run["group_matrix"] = ile.signal_by_group_matrix(rows)
-    run["misses"] = {
-        name: {
-            group: [q_sid_by_id[q] for q in qids]
-            for group, qids in result["misses"].items()
-        }
-        for name, result in rows.items()
-    }
-
-
-def _resolve_signals(dataset, requested):
-    available = {s["name"]: s for s in list_available_signals(dataset)}
-    resolved = []
-    for spec in requested:
-        name = spec["name"]
-        if name not in available:
-            raise ValueError(
-                "Signal '%s' has not been computed on this dataset. Run "
-                "compute_signals first" % name
-            )
-
-        merged = dict(available[name])
-        merged["threshold"] = float(spec["threshold"])
-        merged["weight"] = float(spec.get("weight", 1.0))
-        resolved.append(merged)
-
-    if not resolved:
-        raise ValueError("Enable at least one signal")
-
-    return resolved
-
-
-def _identities(view, id_field, sample_ids):
-    if not id_field:
-        return list(sample_ids)
-
-    values = view.values(id_field)
-    return [v if v is not None else sid for v, sid in zip(values, sample_ids)]
-
-
-def _get_matrices(ctx, query_view, pool_view, q_sids, p_sids, signals):
-    status = get_store(ctx).get(SIGNALS_STATUS_KEY) or {}
-    digest = hashlib.sha1(
-        ("|".join(q_sids) + "#" + "|".join(p_sids)).encode()
-    ).hexdigest()
-
-    matrices = {}
-    for s in signals:
-        key = (
-            str(ctx.dataset._doc.id),
-            s["kind"],
-            s["source"],
-            status.get("updated_at"),
-            digest,
-        )
-        if key in _MATRIX_CACHE:
-            _MATRIX_CACHE.move_to_end(key)
-            matrices[s["name"]] = _MATRIX_CACHE[key]
-            continue
-
-        if s["kind"] == "hash":
-            matrix = _hash_matrix(query_view, pool_view, s)
-        else:
-            matrix = _embedding_matrix(ctx.dataset, q_sids, p_sids, s)
-
-        _MATRIX_CACHE[key] = matrix
-        while len(_MATRIX_CACHE) > _MATRIX_CACHE_SIZE * max(1, len(signals)):
-            _MATRIX_CACHE.popitem(last=False)
-
-        matrices[s["name"]] = matrix
-
-    return matrices
-
-
-def _hash_matrix(query_view, pool_view, signal):
-    q_hashes = query_view.values(signal["source"])
-    p_hashes = pool_view.values(signal["source"])
-    blank = "0" * (signal["bits"] // 4)
-    matrix = ils.hamming_matrix(
-        [h or blank for h in q_hashes], [h or blank for h in p_hashes]
-    )
-
-    # Images without a hash can never pass a hash threshold
-    matrix[[h is None for h in q_hashes], :] = signal["bits"]
-    matrix[:, [h is None for h in p_hashes]] = signal["bits"]
-    return matrix
-
-
-def _embedding_matrix(dataset, q_sids, p_sids, signal):
-    results = dataset.load_brain_results(signal["source"])
-    q_emb = _embeddings_for(results, q_sids)
-    p_emb = _embeddings_for(results, p_sids)
-    return ils.cosine_matrix(q_emb, p_emb)
+    return sids, ids, hashes
 
 
 def _embeddings_for(results, sample_ids):
@@ -479,7 +333,7 @@ def _embeddings_for(results, sample_ids):
     )
     embeddings = np.asarray(embeddings, dtype=np.float32)
     if embeddings.ndim != 2 or not len(embeddings):
-        raise ValueError("No embeddings found for the requested samples")
+        raise ValueError("No CLIP embeddings found for the requested samples")
 
     out = np.zeros((len(sample_ids), embeddings.shape[1]), dtype=np.float32)
     row = {str(sid): i for i, sid in enumerate(found_ids)}
@@ -489,3 +343,190 @@ def _embeddings_for(results, sample_ids):
             out[i] = embeddings[j]
 
     return out
+
+
+# -- Rule --
+
+
+def apply_rule(ctx, settings, rule, progress=None):
+    """Applies a rule to the stored candidates, writes ``<output_field>``
+    and, if a truth field is set, scores it with a native binary evaluation.
+
+    Args:
+        ctx: an :class:`fiftyone.operators.ExecutionContext`
+        settings: the ``find_copies`` settings
+        rule: a rule dict
+        progress (None): an optional ``function(fraction, label)``
+
+    Returns:
+        a summary dict
+    """
+    progress = progress or (lambda *args: None)
+    rule = ilr.normalize_rule(rule)
+    dataset = ctx.dataset
+    output_field = settings.get("output_field", OUTPUT_FIELD)
+    truth_field = settings.get("truth_field")
+
+    queries = queries_view(dataset, settings)
+    fields = ["id", candidates_field(settings)]
+    if truth_field:
+        fields.append(truth_field)
+
+    values = queries.values(fields)
+    q_sids = [str(s) for s in values[0]]
+    if not q_sids:
+        raise ValueError("No candidates found. Run 'Find copies' first")
+
+    all_candidates = values[1]
+    truths = values[2] if truth_field else [None] * len(q_sids)
+
+    progress(0.2, "Applying rule")
+    links, gts, preds = {}, {}, {}
+    counts = {"queries": len(q_sids), "linked": 0, "right": 0, "wrong": 0, "missed": 0}
+    for sid, candidates, truth in zip(q_sids, all_candidates, truths):
+        candidates = candidates or []
+        link = ilr.pick_link(candidates, rule)
+        best = min(candidates, key=lambda c: ilr.rank_key(c, rule)) if candidates else None
+        truth = str(truth) if truth is not None else None
+
+        if link is None:
+            links[sid] = fo.Classification(label=NONE_LABEL)
+        else:
+            links[sid] = fo.Classification(
+                label=link["original"],
+                confidence=ilr.confidence(link, rule, PHASH_BITS),
+                original_id=link["sample_id"],
+                phash=link["phash"],
+                clip=link["clip"],
+            )
+            counts["linked"] += 1
+
+        if truth_field:
+            states = [ilr.state(c, rule) for c in candidates]
+            counts["right"] += states.count(ilr.RIGHT)
+            counts["wrong"] += states.count(ilr.WRONG)
+            counts["missed"] += states.count(ilr.MISSED)
+
+            gts[sid] = fo.Classification(label=COPY if truth else UNIQUE)
+            found = link is not None and (truth is None or link["original"] == truth)
+            score = ilr.confidence(best, rule, PHASH_BITS) if best else 0.0
+            preds[sid] = fo.Classification(
+                label=COPY if found else UNIQUE,
+                confidence=score if found else round(1.0 - score, 4),
+            )
+
+    progress(0.6, "Writing results")
+    _clear_label_field(dataset, output_field)
+    dataset.set_values(output_field, links, key_field="id")
+
+    summary = dict(counts, rule=rule, rule_text=ilr.describe_rule(rule), output_field=output_field)
+    if truth_field:
+        progress(0.8, "Scoring")
+        gt_field = output_field + GT_SUFFIX
+        pred_field = output_field + PRED_SUFFIX
+        _clear_label_field(dataset, gt_field)
+        _clear_label_field(dataset, pred_field)
+        dataset.set_values(gt_field, gts, key_field="id")
+        dataset.set_values(pred_field, preds, key_field="id")
+
+        eval_key = ilr.rule_key(rule)
+        if eval_key in dataset.list_evaluations():
+            dataset.delete_evaluation(eval_key)
+
+        results = queries_view(dataset, settings).evaluate_classifications(
+            pred_field,
+            gt_field=gt_field,
+            eval_key=eval_key,
+            method="binary",
+            classes=[UNIQUE, COPY],
+            progress=False,
+        )
+        metrics = results.metrics()
+        summary.update(
+            eval_key=eval_key,
+            precision=round(float(metrics.get("precision", 0.0)), 4),
+            recall=round(float(metrics.get("recall", 0.0)), 4),
+            f1=round(float(metrics.get("fscore", 0.0)), 4),
+        )
+
+    dataset.add_dynamic_sample_fields()
+    progress(1.0, "Done")
+    return summary
+
+
+def _clear_label_field(dataset, field):
+    if dataset.has_sample_field(field):
+        dataset.clear_sample_field(field)
+    else:
+        dataset.add_sample_field(
+            field, fo.EmbeddedDocumentField, embedded_doc_type=fo.Classification
+        )
+
+
+# -- Graph --
+
+
+def graph_payload(ctx, settings, max_queries=MAX_GRAPH_QUERIES):
+    """Builds the Copy Graph data for the queries in the current view.
+
+    Args:
+        ctx: an :class:`fiftyone.operators.ExecutionContext`
+        settings: the ``find_copies`` settings
+        max_queries (40): the most queries to include
+
+    Returns:
+        a dict with ``queries``, ``originals``, ``total`` and ``truncated``
+    """
+    dataset = ctx.dataset
+    field = candidates_field(settings)
+    if not dataset.has_sample_field(field):
+        return {"queries": [], "originals": {}, "total": 0, "truncated": False}
+
+    id_field = settings.get("id_field")
+    truth_field = settings.get("truth_field")
+    in_view = ctx.view.exists(field)
+    total = len(in_view)
+    in_view = in_view.limit(max_queries)
+
+    fields = ["id", "filepath", field]
+    fields.append(id_field or "id")
+    fields.append(truth_field or "id")
+    values = in_view.values(fields)
+
+    queries = []
+    original_ids = set()
+    for sid, filepath, candidates, identity, truth in zip(*values):
+        candidates = candidates or []
+        original_ids.update(c["sample_id"] for c in candidates)
+        queries.append(
+            {
+                "id": str(sid),
+                "filepath": filepath,
+                "identity": str(identity) if id_field else str(sid),
+                "truth": str(truth) if truth_field and truth is not None else None,
+                "candidates": candidates,
+            }
+        )
+
+    originals = {}
+    if original_ids:
+        pool = dataset.select(list(original_ids))
+        for sid, filepath, identity in zip(
+            *pool.values(["id", "filepath", id_field or "id"])
+        ):
+            originals[str(sid)] = {
+                "id": str(sid),
+                "filepath": filepath,
+                "identity": str(identity) if id_field else str(sid),
+            }
+
+    return {
+        "queries": queries,
+        "originals": originals,
+        "total": total,
+        "truncated": total > len(queries),
+    }
+
+
+def _now_iso():
+    return datetime.now(timezone.utc).isoformat()
