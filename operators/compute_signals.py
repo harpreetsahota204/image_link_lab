@@ -75,7 +75,7 @@ class ComputeSignals(foo.Operator):
                 yield ctx.trigger("set_progress", {"progress": 0.0, "label": "Hashing images"})
 
             summary["hashed"] = engine.compute_phash(
-                view, progress=lambda f, l: report(0.4 * f, l), skip_existing=False
+                view, progress=lambda fraction, label: report(0.4 * fraction, label)
             )
 
         if ctx.params.get("clip"):

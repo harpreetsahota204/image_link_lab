@@ -1,11 +1,11 @@
 import { getSampleSrc } from "@fiftyone/state";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ACCENT, BORDER, BORDER_STRONG, STATE_COLORS, TEXT_MUTED, TEXT_PRIMARY } from "../colors";
-import { sortForDrawing, type Model } from "../graph";
+import { familyOf, sortForDrawing, type Model } from "../graph";
 import { ORIGINAL_SIZE, QUERY_SIZE, SINGLE_SIZE, packLayout, type Point } from "../layout";
 import type { Edge } from "../types";
 
-export type Camera = { k: number; tx: number; ty: number };
+type Camera = { k: number; tx: number; ty: number };
 
 const MIN_K = 0.25;
 const MAX_K = 4;
@@ -146,21 +146,15 @@ const Graph = React.forwardRef<GraphHandle, Props>(function Graph(
 
   const [hoverId, setHoverId] = useState<string | null>(null);
 
-  const selected = useMemo(() => new Set(selectedSamples), [selectedSamples]);
+  // Nodes drawn at full strength: the selected line's ends, the clicked
+  // image's family, and whatever is ticked in the grid
   const focusEdge = model.visible.find((e) => e.id === selectedEdgeId) ?? null;
-  const focusNodes = new Set<string>();
+  const focusNodes = new Set<string>(selectedSamples);
   if (focusEdge) {
     focusNodes.add(focusEdge.query.id);
     focusNodes.add(focusEdge.original.id);
   }
-  if (focusId) {
-    focusNodes.add(focusId);
-    for (const e of model.visible) {
-      if (e.query.id === focusId) focusNodes.add(e.original.id);
-      if (e.original.id === focusId) focusNodes.add(e.query.id);
-    }
-  }
-  for (const id of selected) focusNodes.add(id);
+  if (focusId) for (const id of familyOf(model, focusId)) focusNodes.add(id);
   const dimming = focusNodes.size > 0;
 
   return (

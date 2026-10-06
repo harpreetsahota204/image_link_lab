@@ -142,14 +142,13 @@ class CopyGraphPanel(foo.Panel):
     def _refresh(self, ctx, graph_only=False):
         settings = engine.load_settings(ctx) or {}
         if not graph_only:
-            signals = engine.signal_status(ctx.dataset)
             has_candidates = bool(settings) and len(
                 engine.queries_view(ctx.dataset, settings)
             ) > 0
             ctx.panel.set_data(
                 "status",
                 {
-                    "signals": signals,
+                    "signals": engine.signal_status(ctx.dataset),
                     "candidates": has_candidates,
                     "has_truth": bool(settings.get("truth_field")),
                     "settings": settings,

@@ -19,6 +19,5 @@ export const ACCENT = "var(--color-brand-accent)";
 export const BORDER = "var(--color-content-border-default)";
 export const BORDER_STRONG = "var(--color-content-border-strong)";
 export const CARD = "var(--color-content-bg-card)";
-export const CARD_ELEVATED = "var(--color-content-bg-card-elevated)";
 export const TEXT_MUTED = "var(--color-content-text-muted)";
 export const TEXT_PRIMARY = "var(--color-content-text-primary)";

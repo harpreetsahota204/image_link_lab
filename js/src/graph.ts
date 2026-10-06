@@ -61,16 +61,16 @@ class Groups {
   private parent = new Map<string, string>();
 
   find(key: string): string {
+    if (!this.parent.has(key)) this.parent.set(key, key);
     let root = key;
-    while (this.parent.has(root) && this.parent.get(root) !== root) root = this.parent.get(root)!;
-    // path compression
+    while (this.parent.get(root) !== root) root = this.parent.get(root)!;
+    // Path compression: point everything on the way to the root
     let cur = key;
-    while (this.parent.has(cur) && this.parent.get(cur) !== root) {
+    while (cur !== root) {
       const next = this.parent.get(cur)!;
       this.parent.set(cur, root);
       cur = next;
     }
-    if (!this.parent.has(key)) this.parent.set(key, key);
     return root;
   }
 
@@ -126,9 +126,19 @@ export function buildModel(graph: GraphData | null | undefined, rule: Rule, show
   return { edges, visible: drawn, families, singles, counts: countStates(edges) };
 }
 
-export const STATE_ORDER: LinkState[] = ["missed", "none", "wrong", "right"];
+/** The image plus everything it has a drawn line to. */
+export function familyOf(model: Model, id: string): string[] {
+  const ids = new Set([id]);
+  for (const e of model.visible) {
+    if (e.query.id === id) ids.add(e.original.id);
+    if (e.original.id === id) ids.add(e.query.id);
+  }
+  return [...ids];
+}
 
-/** Draw order: faint candidates first, right links on top. */
+const DRAW_ORDER: LinkState[] = ["none", "missed", "wrong", "right"];
+
+/** Draw order: faint candidates at the back, right links on top. */
 export function sortForDrawing(edges: Edge[]): Edge[] {
-  return [...edges].sort((a, b) => STATE_ORDER.indexOf(a.state) - STATE_ORDER.indexOf(b.state));
+  return [...edges].sort((a, b) => DRAW_ORDER.indexOf(a.state) - DRAW_ORDER.indexOf(b.state));
 }

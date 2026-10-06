@@ -6,7 +6,7 @@ import Evidence from "./components/Evidence";
 import Graph, { type GraphHandle } from "./components/Graph";
 import { Legend, ZoomControls } from "./components/Overlays";
 import Setup from "./components/Setup";
-import { buildModel, type Model } from "./graph";
+import { buildModel, familyOf } from "./graph";
 import { usePanelClient } from "./hooks/usePanelClient";
 import { usePersistentState } from "./hooks/usePersistentState";
 import type { Edge, PanelData, PanelMethods, Rule } from "./types";
@@ -17,16 +17,6 @@ type Props = {
 };
 
 const EVIDENCE_WIDTH = 330;
-
-/** The image plus everything it has a drawn line to. */
-function familyOf(model: Model, id: string): string[] {
-  const ids = new Set([id]);
-  for (const e of model.visible) {
-    if (e.query.id === id) ids.add(e.original.id);
-    if (e.original.id === id) ids.add(e.query.id);
-  }
-  return [...ids];
-}
 
 export default function CopyGraphView({ data, schema }: Props) {
   const call = usePanelClient(schema.view);

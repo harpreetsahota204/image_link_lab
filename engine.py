@@ -6,7 +6,6 @@ Both operators and the panel call these functions, so a step behaves the
 same whether it starts from a form, the panel, a notebook or an agent.
 """
 import logging
-from datetime import datetime, timezone
 
 import numpy as np
 from PIL import Image
@@ -42,6 +41,12 @@ logger = logging.getLogger(__name__)
 
 _HASH_CHUNK = 256
 _QUERY_CHUNK = 256
+_CLIP_BATCH_SIZE = 32
+_BLANK_HASH = "0" * (PHASH_BITS // 4)
+
+
+def _no_progress(fraction, label):
+    pass
 
 
 # -- Settings --
@@ -59,9 +64,7 @@ def load_settings(ctx):
 
 def save_settings(ctx, settings):
     """Saves the ``find_copies`` settings."""
-    settings = dict(settings, updated_at=_now_iso())
     get_store(ctx).set(SETTINGS_KEY, settings)
-    return settings
 
 
 # -- Scopes --
@@ -125,26 +128,24 @@ def signal_status(dataset):
     }
 
 
-def compute_phash(view, progress=None, skip_existing=True):
-    """Computes pHash for a view, writes it to the ``phash`` field, and
-    registers the bits as a native similarity index under brain key
-    ``phash`` so the App can sort by it.
+def compute_phash(view, progress=None):
+    """Computes pHash for every image in a view, writes it to the ``phash``
+    field, and registers the bits as a native similarity index under brain
+    key ``phash`` so the App can sort by it.
 
     Args:
         view: a :class:`fiftyone.core.collections.SampleCollection`
         progress (None): an optional ``function(fraction, label)``
-        skip_existing (True): skip samples that already have a hash
 
     Returns:
         the number of images hashed
     """
-    progress = progress or (lambda *args: None)
+    progress = progress or _no_progress
     dataset = view._dataset
     if not dataset.has_sample_field(PHASH_FIELD):
         dataset.add_sample_field(PHASH_FIELD, fo.StringField)
 
-    todo = view.exists(PHASH_FIELD, False) if skip_existing else view
-    ids, filepaths = todo.values(["id", "filepath"])
+    ids, filepaths = view.values(["id", "filepath"])
     total = len(ids)
     hashed = 0
     for start in range(0, total, _HASH_CHUNK):
@@ -194,12 +195,11 @@ def _index_phash(view):
     )
 
 
-def compute_clip(view, batch_size=32):
+def compute_clip(view):
     """Builds the native CLIP similarity index under brain key ``clip``.
 
     Args:
         view: a :class:`fiftyone.core.collections.SampleCollection`
-        batch_size (32): the embedding batch size
 
     Returns:
         the brain key
@@ -214,7 +214,7 @@ def compute_clip(view, batch_size=32):
         view,
         model=CLIP_MODEL,
         brain_key=CLIP_BRAIN_KEY,
-        batch_size=batch_size,
+        batch_size=_CLIP_BATCH_SIZE,
         progress=False,
     )
     return CLIP_BRAIN_KEY
@@ -224,6 +224,7 @@ def compute_clip(view, batch_size=32):
 
 
 def candidates_field(settings):
+    """Returns the field that holds each query's candidates."""
     return settings.get("output_field", OUTPUT_FIELD) + CANDIDATES_SUFFIX
 
 
@@ -249,7 +250,7 @@ def gather_candidates(ctx, settings, progress=None):
     Returns:
         a dict with ``queries`` and ``originals`` counts
     """
-    progress = progress or (lambda *args: None)
+    progress = progress or _no_progress
     dataset = ctx.dataset
     status = signal_status(dataset)
     missing = [k for k, ok in status.items() if not ok]
@@ -290,8 +291,8 @@ def gather_candidates(ctx, settings, progress=None):
         chunk_sids = q_sids[start:stop]
         q_emb = _embeddings_for(results, chunk_sids)
         phash = ilh.hamming_matrix(
-            [h or "0" * (PHASH_BITS // 4) for h in q_hashes[start:stop]],
-            [h or "0" * (PHASH_BITS // 4) for h in p_hashes],
+            [h or _BLANK_HASH for h in q_hashes[start:stop]],
+            [h or _BLANK_HASH for h in p_hashes],
         )
         clip = ilh.cosine_matrix(q_emb, p_emb)
         exclude = np.asarray(chunk_sids, dtype=object)[:, None] == p_sid_arr[None, :]
@@ -312,15 +313,14 @@ def gather_candidates(ctx, settings, progress=None):
 
 
 def _load_identities(view, id_field):
-    fields = ["id", "filepath", PHASH_FIELD]
-    if id_field:
-        fields.append(id_field)
-
+    """Returns each sample's ID, identity and hash, falling back to the
+    sample ID when the identity is missing."""
+    fields = ["id", PHASH_FIELD] + ([id_field] if id_field else [])
     values = view.values(fields)
     sids = [str(s) for s in values[0]]
-    hashes = values[2]
+    hashes = values[1]
     if id_field:
-        ids = [str(v) if v is not None else sid for v, sid in zip(values[3], sids)]
+        ids = [str(v) if v is not None else sid for v, sid in zip(values[2], sids)]
     else:
         ids = list(sids)
 
@@ -361,7 +361,7 @@ def apply_rule(ctx, settings, rule, progress=None):
     Returns:
         a summary dict
     """
-    progress = progress or (lambda *args: None)
+    progress = progress or _no_progress
     rule = ilr.normalize_rule(rule)
     dataset = ctx.dataset
     output_field = settings.get("output_field", OUTPUT_FIELD)
@@ -386,7 +386,6 @@ def apply_rule(ctx, settings, rule, progress=None):
     for sid, candidates, truth in zip(q_sids, all_candidates, truths):
         candidates = candidates or []
         link = ilr.pick_link(candidates, rule)
-        best = min(candidates, key=lambda c: ilr.rank_key(c, rule)) if candidates else None
         truth = str(truth) if truth is not None else None
 
         if link is None:
@@ -409,6 +408,9 @@ def apply_rule(ctx, settings, rule, progress=None):
 
             gts[sid] = fo.Classification(label=COPY if truth else UNIQUE)
             found = link is not None and (truth is None or link["original"] == truth)
+            # The best candidate's score is the confidence either way: how
+            # sure we are it is a copy, or (inverted) that it is unique
+            best = min(candidates, key=lambda c: ilr.rank_key(c, rule)) if candidates else None
             score = ilr.confidence(best, rule, PHASH_BITS) if best else 0.0
             preds[sid] = fo.Classification(
                 label=COPY if found else UNIQUE,
@@ -489,10 +491,9 @@ def graph_payload(ctx, settings, view=None, max_queries=MAX_GRAPH_QUERIES):
     total = len(in_view)
     in_view = in_view.limit(max_queries)
 
-    fields = ["id", "filepath", field]
-    fields.append(id_field or "id")
-    fields.append(truth_field or "id")
-    values = in_view.values(fields)
+    values = in_view.values(
+        ["id", "filepath", field, id_field or "id", truth_field or "id"]
+    )
 
     queries = []
     original_ids = set()
@@ -527,7 +528,3 @@ def graph_payload(ctx, settings, view=None, max_queries=MAX_GRAPH_QUERIES):
         "total": total,
         "truncated": total > len(queries),
     }
-
-
-def _now_iso():
-    return datetime.now(timezone.utc).isoformat()

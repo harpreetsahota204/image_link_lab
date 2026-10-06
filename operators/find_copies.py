@@ -23,6 +23,7 @@ from ..constants import (
 from ..core import rule as ilr
 
 _PANEL_NAME = "copy_graph"
+_NONE = "__none__"
 
 
 class FindCopies(foo.Operator):
@@ -65,7 +66,7 @@ class FindCopies(foo.Operator):
             return types.Property(inputs, view=types.View(label="Find copies"))
 
         saved = engine.load_settings(ctx) or {}
-        has_candidates = len(engine.queries_view(ctx.dataset, saved)) > 0 if saved else False
+        has_candidates = bool(saved) and len(engine.queries_view(ctx.dataset, saved)) > 0
 
         inputs.view(
             "images_header",
@@ -199,10 +200,12 @@ class FindCopies(foo.Operator):
             and len(engine.queries_view(ctx.dataset, settings)) > 0
         )
         if not reuse:
-            engine.gather_candidates(ctx, settings, progress=lambda f, l: progress(0.7 * f, l))
+            engine.gather_candidates(
+                ctx, settings, progress=lambda fraction, label: progress(0.7 * fraction, label)
+            )
 
         summary = engine.apply_rule(
-            ctx, settings, rule, progress=lambda f, l: progress(0.7 + 0.3 * f, l)
+            ctx, settings, rule, progress=lambda fraction, label: progress(0.7 + 0.3 * fraction, label)
         )
         engine.save_settings(ctx, dict(settings, rule=rule))
 
@@ -227,9 +230,6 @@ class FindCopies(foo.Operator):
             outputs.str("eval_key", label="Evaluation key (see Model Evaluation)")
 
         return types.Property(outputs, view=types.View(label="Copies found"))
-
-
-_NONE = "__none__"
 
 
 def _none(value):

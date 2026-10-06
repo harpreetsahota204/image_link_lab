@@ -5,8 +5,6 @@
  */
 import type { Candidate, LinkState, Rule } from "./types";
 
-export const PHASH_BITS = 64;
-
 export function signalResults(
   candidate: Pick<Candidate, "phash" | "clip">,
   rule: Rule,

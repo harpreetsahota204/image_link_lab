@@ -34,36 +34,5 @@ declare module "@fiftyone/spaces" {
 }
 
 declare module "@fiftyone/state" {
-  import type { RecoilValueReadOnly } from "recoil";
-
-  export const datasetId: RecoilValueReadOnly<string | null>;
-  export const datasetName: RecoilValueReadOnly<string | null>;
   export function getSampleSrc(url: string): string;
-}
-
-declare module "recoil" {
-  export interface RecoilValueReadOnly<T> {
-    readonly __tag: [T];
-  }
-  export function useRecoilValue<T>(value: RecoilValueReadOnly<T>): T;
-}
-
-declare module "@fiftyone/utilities" {
-  export type EventSourceMessage = {
-    id: string;
-    event: string;
-    data: string;
-  };
-
-  export function getEventSource(
-    path: string,
-    events: {
-      onmessage?: (event: EventSourceMessage) => void;
-      onopen?: () => void;
-      onclose?: () => void;
-      onerror?: (error: Error) => void;
-    },
-    signal: AbortSignal,
-    body?: Record<string, unknown>,
-  ): void;
 }

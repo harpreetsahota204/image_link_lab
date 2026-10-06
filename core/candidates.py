@@ -67,10 +67,8 @@ def build_candidates(
 
     out = []
     for i in range(len(query_ids)):
-        cols = []
-        for j in list(by_phash[i]) + list(by_clip[i]):
-            if j not in cols:
-                cols.append(int(j))
+        # Union of both signals' picks, pHash first, without duplicates
+        cols = list(dict.fromkeys(int(j) for j in (*by_phash[i], *by_clip[i])))
 
         truth_id = truth[i] if truth is not None else None
         truth_col = pool_index.get(truth_id) if truth_id is not None else None

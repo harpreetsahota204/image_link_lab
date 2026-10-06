@@ -40,20 +40,15 @@ function ringRadius(count: number, nodeSize: number, min: number): number {
   return Math.max(min, (count * nodeSize * 1.35) / (2 * Math.PI));
 }
 
-function angleOf(center: Point, p: Point): number {
-  return Math.atan2(p.y - center.y, p.x - center.x);
-}
-
 /** Lays out one family around (0, 0); returns positions and the outer radius. */
 export function layoutFamily(family: Family): { positions: Map<string, Point>; radius: number } {
   const positions = new Map<string, Point>();
-  const origin: Point = { x: 0, y: 0 };
   const k = family.originals.length;
   const m = family.queries.length;
 
   let inner = 0;
   if (k === 1) {
-    positions.set(`o:${family.originals[0].id}`, origin);
+    positions.set(`o:${family.originals[0].id}`, { x: 0, y: 0 });
   } else {
     inner = ringRadius(k, ORIGINAL_SIZE, 48);
     family.originals.forEach((o, i) => {
@@ -72,12 +67,15 @@ export function layoutFamily(family: Family): { positions: Map<string, Point>; r
       target.set(q.id, 0);
       continue;
     }
+    // Mean direction of the originals it touches (unit vectors, so two
+    // originals on opposite sides don't cancel into a wrong angle)
     let sx = 0;
     let sy = 0;
     for (const e of mine) {
       const p = positions.get(`o:${e.original.id}`)!;
-      sx += Math.cos(angleOf(origin, p));
-      sy += Math.sin(angleOf(origin, p));
+      const a = Math.atan2(p.y, p.x);
+      sx += Math.cos(a);
+      sy += Math.sin(a);
     }
     target.set(q.id, Math.atan2(sy, sx));
   }
