@@ -24,3 +24,6 @@ Thumbs.db
 # Local secrets and logs
 .env
 *.log
+
+# Internal design notes live outside the repo
+DESIGN.md
