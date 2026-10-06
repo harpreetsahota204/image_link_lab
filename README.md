@@ -6,6 +6,11 @@ Two signals do the finding: **pHash** (how the pixels are laid out) and **CLIP**
 
 Built from standard FiftyOne parts: two operators, one hybrid panel, native similarity indexes, native evaluation runs. The plugin adds only what FiftyOne lacks: a perceptual hash, a rule over two signals, and the graph.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/dark/ll_03_workflow.png">
+  <img alt="The five-step workflow: compute signals, find copies, open the panel, score the rule, act. Each step lists what is plugin code and what is native FiftyOne." src="assets/ll_03_workflow.png">
+</picture>
+
 ---
 
 ## Install
@@ -36,6 +41,11 @@ Requires `fiftyone>=1.22.1`. CLIP runs on CPU but is much faster on a GPU. The J
 ## Quick start (SDK)
 
 Everything the App does is an operator, so a notebook, a script or an agent can run it.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/dark/ll_09_composable.png">
+  <img alt="One URI per step, callable from panel buttons, the find_copies form, a notebook, an AI agent, or a background worker; native tools close the loop between the grid, the panel, scoring and Model Evaluation." src="assets/ll_09_composable.png">
+</picture>
 
 ```python
 import fiftyone as fo
@@ -90,6 +100,11 @@ Image collections are full of edited copies of the same picture: cropped, mirror
 - **Licensing and attribution.** You need to know where an image came from.
 - **Moderation and forensics.** A known-bad image comes back with a filter on it, or turns up on a second device.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/dark/ll_01_problem.png">
+  <img alt="One original and five edited copies on five different devices; exact-duplicate search finds none of them." src="assets/ll_01_problem.png">
+</picture>
+
 FiftyOne already finds byte-identical files (`compute_exact_duplicates`) and near-duplicates by a single embedding (`compute_near_duplicates`, the Similarity Search panel). What it doesn't do is combine two different kinds of similarity with a rule you control, and show you which image is linked to which and why. That gap is what this plugin fills.
 
 ### 2. The idea: pixels versus meaning
@@ -104,6 +119,11 @@ Each signal has a blind spot the other doesn't. The plugin computes both for eve
 - **Both must agree** (`all`): link only if both pass. Fewer links, almost all right.
 
 Each signal has a limit you set: the most bits pHash may differ by, and the least similarity CLIP must reach. Moving a limit is the whole game, and the graph shows you the consequences as you move it.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/dark/ll_02_signals.png">
+  <img alt="Four pairs from DISC21: a mirrored copy only CLIP catches, a striped and blurred copy only pHash catches, a look-alike CLIP nearly links by mistake, and a flipped, blurred, filtered copy both miss." src="assets/ll_02_signals.png">
+</picture>
 
 ### 3. Step 1: Compute signals
 
@@ -134,6 +154,11 @@ What it does:
 1. **Gathers candidates.** For each query, the 5 nearest originals by pHash and the 5 nearest by CLIP, plus the true original if a truth field is set and it wasn't already among them. For every candidate it stores both signals' values. This is the slow step (about 4 s for 1,000 queries against 5,000 originals) and it is reused by every later run, which is why re-scoring takes a second.
 2. **Applies the rule** and writes `copy_of`: a `Classification` per query whose label is the linked original's ID, or `none`. When several candidates pass, the one passing the most signals wins, then the highest CLIP similarity, then the fewest differing bits.
 3. **Scores**, if a truth field is set. See section 7.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/dark/ll_06_find_copies.png">
+  <img alt="The Find copies form beside the four things execute does: gather candidates once, apply the rule, score with a native binary evaluation, remember the settings and open the panel." src="assets/ll_06_find_copies.png">
+</picture>
 
 ### 5. Reading the graph
 
@@ -169,6 +194,11 @@ What to expect on the demo dataset (DISC21: 1,000 edited queries, 5,000 original
 Read the last two rows together: tightening to "both must agree" removes every wrong link and most right ones; loosening pHash by 4 bits adds 25 right links and 158 wrong ones (precision drops from 98% to 66%). There is no setting that gets everything, and the point of the panel is to see where the trade-off sits for your data, not to hide it behind one number.
 
 The DISC21 edits are deliberately brutal (heavy crops, overlays, blends), so recall is low across the board. On a collection of ordinary re-uploads, pHash alone will catch most copies.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/dark/ll_10_tradeoff.png">
+  <img alt="Bars for five rules: right links in green, missed originals in amber, wrong links in red. Loosening pHash from 10 to 14 bits adds 25 right links and 158 wrong ones." src="assets/ll_10_tradeoff.png">
+</picture>
 
 ### 7. The evidence pane
 
@@ -305,7 +335,17 @@ js/src/                        the panel UI in React + VOODO: rule.ts mirrors co
                                graph.ts builds families, layout.ts packs the stars, Graph.tsx draws them
 ```
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/dark/ll_04_anatomy.png">
+  <img alt="The plugin folder and its four layers: browser, framework, engine, core, each calling only the one below." src="assets/ll_04_anatomy.png">
+</picture>
+
 The rule exists twice on purpose: in Python for the operators and in TypeScript so the sliders can run it in the browser. `tests/fixtures/rule_cases.json` is shared by both test suites, so they can't drift.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/dark/ll_08_interactions.png">
+  <img alt="Sequence diagram of four interactions: a slider drag needs no server round trip; an image click sets the grid view and remembers the base view; a grid filter redraws the graph; Score this rule writes copy_of and an evaluation and opens Model Evaluation." src="assets/ll_08_interactions.png">
+</picture>
 
 Everything else is native FiftyOne: CLIP comes from `compute_similarity`, the pHash bits are registered as a second similarity index, results are plain `Classification` fields, scoring is `evaluate_classifications`, and rule history lives in evaluation runs. The panel talks to the App through `ctx.ops` (select samples, set the view, open a sample, open Model Evaluation) and opens the operator forms with `ctx.prompt`.
 
