@@ -12,7 +12,7 @@ class ComputeSignals(foo.Operator):
     def config(self):
         return foo.OperatorConfig(
             name="compute_signals",
-            label="Copy Graph: compute signals",
+            label="Image Link Lab: compute signals",
             description=(
                 "Computes a perceptual hash (pHash) and a CLIP embedding for "
                 "each image. Both become native similarity indexes"

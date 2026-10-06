@@ -10,4 +10,4 @@ operators:
   - compute_signals
   - find_copies
 panels:
-  - copy_graph
+  - image_link_lab

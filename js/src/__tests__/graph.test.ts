@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildModel } from "../graph";
+import { DEFAULT_VISIBLE, buildModel } from "../graph";
 import { layoutFamily, packLayout } from "../layout";
-import type { GraphData, Rule } from "../types";
+import type { GraphData, LinkState, Rule } from "../types";
+
+const ALL_STATES: LinkState[] = ["right", "wrong", "missed", "none"];
 
 const RULE: Rule = { phash_max: 10, clip_min: 0.9, combine: "any" };
 
@@ -44,33 +46,36 @@ const GRAPH: GraphData = {
 
 describe("buildModel", () => {
   it("counts states across all candidates", () => {
-    const m = buildModel(GRAPH, RULE, false);
-    expect(m.counts).toEqual({ right: 2, wrong: 1, missed: 1, linked: 2 });
+    const m = buildModel(GRAPH, RULE, DEFAULT_VISIBLE);
+    expect(m.counts).toEqual({ right: 2, wrong: 1, missed: 1, none: 2, linked: 2 });
   });
 
   it("groups linked nodes into families, largest first, and leaves singles out", () => {
-    const m = buildModel(GRAPH, RULE, false);
+    const m = buildModel(GRAPH, RULE, DEFAULT_VISIBLE);
     expect(m.families.map((f) => f.queries.map((q) => q.id).sort())).toEqual([["q1", "q2"], ["q3"]]);
     expect(m.families[0].originals.map((o) => o.id).sort()).toEqual(["a", "b"]);
     expect(m.families[1].originals.map((o) => o.id)).toEqual(["c"]);
     expect(m.singles.map((q) => q.id)).toEqual(["q4"]);
   });
 
-  it("hides non-links unless asked to show all candidates", () => {
-    expect(buildModel(GRAPH, RULE, false).visible).toHaveLength(4);
-    const all = buildModel(GRAPH, RULE, true);
+  it("draws only the line kinds switched on", () => {
+    expect(buildModel(GRAPH, RULE, DEFAULT_VISIBLE).visible).toHaveLength(4);
+    const all = buildModel(GRAPH, RULE, ALL_STATES);
     expect(all.visible).toHaveLength(6);
     expect(all.singles).toHaveLength(0);
+    const onlyWrong = buildModel(GRAPH, RULE, ["wrong"]);
+    expect(onlyWrong.visible.map((e) => e.state)).toEqual(["wrong"]);
+    expect(onlyWrong.singles).toHaveLength(3);
   });
 
   it("recomputes states when the rule moves", () => {
     const strict: Rule = { phash_max: 5, clip_min: null, combine: "any" };
-    const m = buildModel(GRAPH, strict, false);
-    expect(m.counts).toEqual({ right: 1, wrong: 0, missed: 2, linked: 1 });
+    const m = buildModel(GRAPH, strict, DEFAULT_VISIBLE);
+    expect(m.counts).toEqual({ right: 1, wrong: 0, missed: 2, none: 3, linked: 1 });
   });
 
   it("thickness: strength counts passing signals", () => {
-    const m = buildModel(GRAPH, RULE, false);
+    const m = buildModel(GRAPH, RULE, DEFAULT_VISIBLE);
     const q1a = m.edges.find((e) => e.id === "q1->a")!;
     const q2a = m.edges.find((e) => e.id === "q2->a")!;
     expect(q1a.strength).toBe(2);
@@ -80,7 +85,7 @@ describe("buildModel", () => {
 
 describe("layout", () => {
   it("puts a single original in the middle and copies on a ring", () => {
-    const m = buildModel(GRAPH, RULE, false);
+    const m = buildModel(GRAPH, RULE, DEFAULT_VISIBLE);
     const fam = m.families[1]; // C with q3
     const { positions, radius } = layoutFamily(fam);
     expect(positions.get("o:c")).toEqual({ x: 0, y: 0 });
@@ -89,7 +94,7 @@ describe("layout", () => {
   });
 
   it("spaces several originals on an inner ring and copies outside it", () => {
-    const m = buildModel(GRAPH, RULE, false);
+    const m = buildModel(GRAPH, RULE, DEFAULT_VISIBLE);
     const fam = m.families[0]; // A and B
     const { positions, radius } = layoutFamily(fam);
     const ra = Math.hypot(positions.get("o:a")!.x, positions.get("o:a")!.y);
@@ -103,7 +108,7 @@ describe("layout", () => {
   });
 
   it("packs families into rows and keeps every node inside the canvas", () => {
-    const m = buildModel(GRAPH, RULE, false);
+    const m = buildModel(GRAPH, RULE, DEFAULT_VISIBLE);
     const layout = packLayout(m.families, m.singles, 500);
     expect(layout.families).toHaveLength(2);
     for (const cell of layout.families) {
@@ -123,7 +128,7 @@ describe("layout", () => {
   });
 
   it("wraps to a new row when a family does not fit", () => {
-    const m = buildModel(GRAPH, RULE, false);
+    const m = buildModel(GRAPH, RULE, DEFAULT_VISIBLE);
     const wide = packLayout(m.families, [], 2000);
     const narrow = packLayout(m.families, [], 300);
     expect(wide.families[0].y).toBe(wide.families[1].y);

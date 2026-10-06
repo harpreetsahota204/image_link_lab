@@ -4,10 +4,10 @@ and read the evidence behind every one.
 """
 from .operators.compute_signals import ComputeSignals
 from .operators.find_copies import FindCopies
-from .panels.copy_graph import CopyGraphPanel
+from .panels.image_link_lab import ImageLinkLabPanel
 
 
 def register(p):
     p.register(ComputeSignals)
     p.register(FindCopies)
-    p.register(CopyGraphPanel)
+    p.register(ImageLinkLabPanel)

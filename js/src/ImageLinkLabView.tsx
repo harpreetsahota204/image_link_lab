@@ -4,12 +4,12 @@ import { BORDER, CARD } from "./colors";
 import Controls from "./components/Controls";
 import Evidence from "./components/Evidence";
 import Graph, { type GraphHandle } from "./components/Graph";
-import { Legend, ZoomControls } from "./components/Overlays";
+import { ZoomControls } from "./components/Overlays";
 import Setup from "./components/Setup";
-import { buildModel, familyOf } from "./graph";
+import { DEFAULT_VISIBLE, buildModel, familyOf } from "./graph";
 import { usePanelClient } from "./hooks/usePanelClient";
 import { usePersistentState } from "./hooks/usePersistentState";
-import type { Edge, PanelData, PanelMethods, Rule } from "./types";
+import type { Edge, LinkState, PanelData, PanelMethods, Rule } from "./types";
 
 type Props = {
   data: PanelData;
@@ -17,15 +17,16 @@ type Props = {
 };
 
 const EVIDENCE_WIDTH = 330;
+const DOUBLE_CLICK_MS = 250;
 
-export default function CopyGraphView({ data, schema }: Props) {
+export default function ImageLinkLabView({ data, schema }: Props) {
   const call = usePanelClient(schema.view);
   const status = data?.status;
   const graph = data?.graph ?? null;
   const ready = !!status && status.signals.phash && status.signals.clip && status.candidates;
 
   const [rule, setRule] = usePersistentState<Rule | null>("rule", null);
-  const [showAll, setShowAll] = usePersistentState<boolean>("show_all", false);
+  const [visible, setVisible] = usePersistentState<LinkState[]>("visible", DEFAULT_VISIBLE);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
   const [filtered, setFiltered] = useState(0);
@@ -38,7 +39,7 @@ export default function CopyGraphView({ data, schema }: Props) {
   }, [rule, status?.rule, setRule]);
   const activeRule = rule ?? status?.rule ?? { phash_max: 10, clip_min: 0.9, combine: "any" };
 
-  const model = useMemo(() => buildModel(graph, activeRule, showAll), [graph, activeRule, showAll]);
+  const model = useMemo(() => buildModel(graph, activeRule, visible), [graph, activeRule, visible]);
   const graphKey = useMemo(() => (graph ? graph.queries.map((q) => q.id).join(",") : ""), [graph]);
 
   // Drop the evidence selection when its line is gone
@@ -46,17 +47,13 @@ export default function CopyGraphView({ data, schema }: Props) {
     if (selectedEdgeId && !model.visible.some((e) => e.id === selectedEdgeId)) setSelectedEdgeId(null);
   }, [model, selectedEdgeId]);
 
-  // If the grid's filter was cleared elsewhere (the grid's own clear button,
-  // another panel), drop the chip and the highlight
-  const extended = data?.extended_selection ?? null;
-  const prevExtended = useRef<string[] | null>(null);
+  // Python owns the filter (it has to restore the view); the local count
+  // just makes the chip appear before the round-trip finishes
+  const serverFilter = data?.filter ?? null;
   useEffect(() => {
-    if (prevExtended.current && !extended) {
-      setFiltered(0);
-      setFocusId(null);
-    }
-    prevExtended.current = extended;
-  }, [extended]);
+    setFiltered(serverFilter?.length ?? 0);
+    if (!serverFilter) setFocusId(null);
+  }, [serverFilter]);
 
   const filterGrid = useCallback(
     (ids: string[]) => {
@@ -73,20 +70,36 @@ export default function CopyGraphView({ data, schema }: Props) {
     }
   }, [call, filtered]);
 
+  // A double-click must not fire the single-click filter first, so single
+  // clicks wait long enough to be sure they are single
+  const clickTimer = useRef<number | null>(null);
   const onNodeClick = useCallback(
     (id: string) => {
-      if (id === focusId) {
-        clearFilter();
-        return;
-      }
-      setFocusId(id);
-      setSelectedEdgeId(null);
-      filterGrid(familyOf(model, id));
+      if (clickTimer.current) window.clearTimeout(clickTimer.current);
+      clickTimer.current = window.setTimeout(() => {
+        clickTimer.current = null;
+        if (id === focusId) {
+          clearFilter();
+          return;
+        }
+        setFocusId(id);
+        setSelectedEdgeId(null);
+        filterGrid(familyOf(model, id));
+      }, DOUBLE_CLICK_MS);
     },
     [focusId, model, filterGrid, clearFilter],
   );
+  const onNodeDoubleClick = useCallback(
+    (id: string) => {
+      if (clickTimer.current) {
+        window.clearTimeout(clickTimer.current);
+        clickTimer.current = null;
+      }
+      call("open_sample", { id });
+    },
+    [call],
+  );
   const onEdgeClick = useCallback((edge: Edge) => setSelectedEdgeId(edge.id), []);
-  const onNodeDoubleClick = useCallback((id: string) => call("open_sample", { id }), [call]);
   const onBackgroundClick = useCallback(() => {
     setSelectedEdgeId(null);
     clearFilter();
@@ -131,9 +144,9 @@ export default function CopyGraphView({ data, schema }: Props) {
         <Controls
           rule={activeRule}
           onRule={setRule}
-          showAll={showAll}
-          onShowAll={setShowAll}
           counts={model.counts}
+          visible={visible}
+          onVisible={setVisible}
           families={model.families.length}
           hasTruth={hasTruth}
           shown={graph?.queries.length ?? 0}
@@ -158,8 +171,8 @@ export default function CopyGraphView({ data, schema }: Props) {
             onNodeClick={onNodeClick}
             onNodeDoubleClick={onNodeDoubleClick}
             onBackgroundClick={onBackgroundClick}
+            allLinksShown={DEFAULT_VISIBLE.every((s) => visible.includes(s))}
           >
-            <Legend hasTruth={hasTruth} />
             <ZoomControls
               onIn={() => graphRef.current?.zoomIn()}
               onOut={() => graphRef.current?.zoomOut()}

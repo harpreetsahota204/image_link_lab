@@ -58,7 +58,7 @@ export type PanelData = {
   graph?: GraphData | null;
   selected?: string[];
   /** Sample IDs the grid is currently filtered to by this panel, or null */
-  extended_selection?: string[] | null;
+  filter?: string[] | null;
 };
 
 export type PanelMethods = {

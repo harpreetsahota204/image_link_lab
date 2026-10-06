@@ -9,7 +9,6 @@ import {
   Text,
   TextColor,
   TextVariant,
-  Toggle,
   Tooltip,
   Variant,
   Orientation,
@@ -19,8 +18,9 @@ import {
 import React from "react";
 import type { Counts } from "../graph";
 import { describeRule, usesClip, usesPhash } from "../rule";
-import type { Rule } from "../types";
+import type { LinkState, Rule } from "../types";
 import { HelpHint } from "./Overlays";
+import StateChips from "./StateChips";
 
 export const PHASH_SLIDER_MAX = 32;
 export const CLIP_SLIDER_MIN = 0.5;
@@ -30,9 +30,9 @@ type Preset = "phash" | "clip" | "both";
 type Props = {
   rule: Rule;
   onRule: (rule: Rule) => void;
-  showAll: boolean;
-  onShowAll: (value: boolean) => void;
   counts: Counts;
+  visible: LinkState[];
+  onVisible: (states: LinkState[]) => void;
   families: number;
   hasTruth: boolean;
   shown: number;
@@ -47,9 +47,9 @@ type Props = {
 export default function Controls({
   rule,
   onRule,
-  showAll,
-  onShowAll,
   counts,
+  visible,
+  onVisible,
   families,
   hasTruth,
   shown,
@@ -106,7 +106,6 @@ export default function Controls({
             style={{ display: "flex", gap: 12 }}
           />
         )}
-        <Toggle size="sm" checked={showAll} onChange={onShowAll} label="Show all candidates" />
       </Stack>
 
       <Stack orientation={Orientation.Row} spacing={Spacing.Lg} align={Align.Center} style={{ flexWrap: "wrap" }}>
@@ -144,27 +143,21 @@ export default function Controls({
 
       <Stack orientation={Orientation.Row} spacing={Spacing.Md} align={Align.Center} justify={Justify.Between} style={{ flexWrap: "wrap" }}>
         <Stack orientation={Orientation.Row} spacing={Spacing.Sm} align={Align.Center} style={{ flexWrap: "wrap" }}>
-          {hasTruth ? (
-            <>
-              <Pill isStatus size={Size.Sm} color={TextColor.Success}>{counts.right} right</Pill>
-              <Pill isStatus size={Size.Sm} color={TextColor.Failure}>{counts.wrong} wrong</Pill>
-              <Pill isStatus size={Size.Sm} color={TextColor.Warning}>{counts.missed} missed</Pill>
-            </>
-          ) : (
-            <Pill size={Size.Sm}>{counts.linked} of {shown} linked</Pill>
-          )}
+          <StateChips counts={counts} hasTruth={hasTruth} visible={visible} onVisible={onVisible} />
           <Text variant={TextVariant.Caption} color={TextColor.Secondary}>
+            {!hasTruth && `${counts.linked} of ${shown} linked · `}
             {total > shown ? `${shown} of ${total} copies in the grid` : `${shown} copies in the grid`}
             {families > 0 ? ` · ${families} ${families === 1 ? "family" : "families"}` : ""}
           </Text>
-          {filtered > 0 && (
-            <Pill size={Size.Sm} color={TextColor.Accent} onRemove={onClearFilter}>
-              grid filtered to {filtered} {filtered === 1 ? "image" : "images"}
-            </Pill>
-          )}
           <HelpHint />
         </Stack>
         <Stack orientation={Orientation.Row} spacing={Spacing.Sm} align={Align.Center}>
+          {/* Always laid out, so the graph doesn't jump when the chip appears */}
+          <div style={{ visibility: filtered > 0 ? "visible" : "hidden" }}>
+            <Pill size={Size.Sm} color={TextColor.Accent} onRemove={onClearFilter}>
+              grid filtered to {filtered} {filtered === 1 ? "image" : "images"}
+            </Pill>
+          </div>
           <Text variant={TextVariant.Caption} color={TextColor.Secondary}>{describeRule(rule)}</Text>
           <Tooltip
             content={

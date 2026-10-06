@@ -1,9 +1,26 @@
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+*.egg-info/
+.venv/
+venv/
 
-# JS dependencies (js/dist stays tracked: FiftyOne loads the plugin from it)
+# JS dependencies and tooling (js/dist stays tracked: FiftyOne loads the
+# plugin from the built bundle, so users don't need a JS toolchain)
 node_modules/
 .yarn/
+*.tsbuildinfo
+.vite/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local secrets and logs
+.env
+*.log

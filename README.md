@@ -2,7 +2,7 @@
 
 Find edited copies of images, see the links as a graph, and read the evidence behind every one.
 
-Two signals do the finding: **pHash** (how the pixels are laid out) and **CLIP** (what the picture shows). A rule you control combines them. The **Copy Graph** panel draws the copies in your grid as nodes and the links as lines, updates as you move the sliders, and tells you in one sentence why each link is there. If you know the true originals, it scores the rule with FiftyOne's native evaluation so you can compare rules in Model Evaluation.
+Two signals do the finding: **pHash** (how the pixels are laid out) and **CLIP** (what the picture shows). A rule you control combines them. The **Image Link Lab** panel draws the copies in your grid as nodes and the links as lines, updates as you move the sliders, and tells you in one sentence why each link is there. If you know the true originals, it scores the rule with FiftyOne's native evaluation so you can compare rules in Model Evaluation.
 
 Built from standard FiftyOne parts: two operators, one hybrid panel, native similarity indexes, native evaluation runs. The plugin adds only what FiftyOne lacks: a perceptual hash, a rule over two signals, and the graph.
 
@@ -11,14 +11,14 @@ Built from standard FiftyOne parts: two operators, one hybrid panel, native simi
 ## Install
 
 ```bash
-# From GitHub (replace the URL with where this repo lives)
-fiftyone plugins download https://github.com/<org>/<repo> --plugin-names @harpreetsahota/image_link_lab
+fiftyone plugins download https://github.com/harpreetsahota204/image_link_lab
 fiftyone plugins requirements @harpreetsahota/image_link_lab --install
 ```
 
-For development, symlink the folder into your plugins directory instead:
+For development, clone the repo and symlink it into your plugins directory instead:
 
 ```bash
+git clone https://github.com/harpreetsahota204/image_link_lab.git
 ln -s "$(pwd)/image_link_lab" "$(python -c 'import fiftyone as fo; print(fo.config.plugins_dir)')/@harpreetsahota/image_link_lab"
 pip install -r image_link_lab/requirements.txt
 ```
@@ -27,7 +27,7 @@ Requires `fiftyone>=1.22.1`. CLIP runs on CPU but is much faster on a GPU. The J
 
 ## Quick start (App)
 
-1. Open a dataset and add the **Copy Graph** panel (the `+` next to Samples, under Custom).
+1. Open a dataset and add the **Image Link Lab** panel (the `+` next to Samples, under Custom).
 2. Click **Compute signals**, keep both boxes ticked, execute. Runs in the background; a minute per 10,000 images for pHash plus CLIP time.
 3. Click **Find copies**. Pick the query images (the ones to explain), where their originals might be, optionally an ID field and a truth field, and execute.
 4. The graph appears. Move the sliders. Click a line for the evidence; click an image to see its family in the grid.
@@ -140,14 +140,15 @@ What it does:
 The panel follows the grid: whatever queries are in the current view (up to 40 at a time) are drawn. Filter the grid, and the graph redraws.
 
 - **Nodes are images.** Copies have a grey border; originals have an orange border and, when more than one copy points at them, a badge with the count.
-- **Lines are candidate pairs the rule has something to say about.** Green: a right link (the rule linked a copy to its true original). Red: a wrong link (linked, but not the true original). Dashed amber: a missed original (the true original, not linked). Pairs that neither pass nor matter are hidden; switch on *Show all candidates* to see them as faint dotted lines.
+- **Lines are candidate pairs the rule has something to say about.** Green: a right link (the rule linked a copy to its true original). Red: a wrong link (linked, but not the true original). Dashed amber: a missed original (the true original, not linked). Pairs that neither pass nor matter are hidden by default; they are the faint dotted *candidates*.
+- **The chips above the graph are the legend, the counts and a filter in one.** Each chip shows its line style and how many pairs of that kind are on screen. Click a chip to show only that kind of line (click **wrong** and the graph becomes just the red links, laid out as their own families); click it again to go back; shift-click to add or remove a kind, for example to switch the faint candidates on.
 - **Thick lines pass both signals; thin lines pass one.** A thick green line is "two independent reasons." A thin red one is "one weak reason."
 - **Families.** Images joined by lines are laid out as a star: originals in the middle, copies around them. A loose rule joins families through wrong links; you will see red lines bridging two stars.
 - **No links.** Queries with nothing to draw sit in a strip at the bottom. For a distractor with no original, that is the correct outcome.
 
 **Moving around.** Scroll to pan, ⌘/Ctrl + scroll (or pinch) to zoom, drag to move, and use the +, − and Fit buttons in the corner. The graph refits itself when a different set of copies comes into view.
 
-**Clicking an image filters the grid** to that image and everything it has a line to: an original and all its copies, or a copy and the originals it was linked to or should have been. The graph stays whole, with the family highlighted and the rest dimmed, and a chip in the toolbar shows how many images the grid is showing. Click the same image again, click the background, press Esc, or use the chip's × to clear it. This is the same mechanism the Embeddings panel uses for a lasso, so the grid's own clear button works too and your view stages are untouched. Double-click an image to open it in the sample modal.
+**Clicking an image filters the grid** to that image and everything it has a line to: an original and all its copies, or a copy and the originals it was linked to or should have been. The originals are shown even when your current view doesn't contain them (the usual case: you're looking at the copies). The graph stays whole, with the family highlighted and the rest dimmed, and a chip in the toolbar shows how many images the grid is showing. Click the same image again, click the background, press Esc, or use the chip's × to clear it, and the grid goes back to exactly the view you had before. Double-click an image to open it in the sample modal.
 
 Without a truth field, every link is drawn green and nothing is dashed. The colors mean "linked," not "right."
 
@@ -180,11 +181,11 @@ CLIP    meaning   0.731 similar     limit ≥ 0.90  fails
 
 and a verdict in a sentence: *Not linked: pHash and CLIP are outside the limit. This is the true original, so the rule missed it.* Every statement can be checked against the numbers above it; there is no model deciding behind the scenes.
 
-**Show pair in grid** filters the grid to just these two images (clear it like any other click filter). **Open copy** opens the query in the modal. Close the pane with ✕, Esc, or a click on the background. The legend for line colors and thickness sits in the corner of the canvas, and the **?** next to the counts lists every interaction.
+**Show pair in grid** filters the grid to just these two images (clear it like any other click filter). **Open copy** opens the query in the modal. Close the pane with ✕, Esc, or a click on the background. The **?** next to the chips lists every interaction, including line thickness (thick passes both signals, thin passes one).
 
 ### 8. Scoring, and what "evaluation" means here
 
-With a truth field set, the panel shows three counts for what's on screen: **right**, **wrong**, **missed**. **Score this rule** runs the rule over every query (not just the 40 on screen), writes `copy_of`, and records a native FiftyOne evaluation named after the rule, for example `copies_phash10_or_clip90`. It then opens Model Evaluation.
+With a truth field set, the chips count the pairs on screen: **right**, **wrong**, **missed**, and the unlinked **candidates**. These are per pair (one copy can contribute several) and only for the copies currently drawn. **Score this rule** runs the rule over every query (not just the 40 on screen), writes `copy_of`, and records a native FiftyOne evaluation named after the rule, for example `copies_phash10_or_clip90`. It then opens Model Evaluation.
 
 The evaluation is **binary, per query**:
 
@@ -204,7 +205,7 @@ One definition to keep in mind: **a copy linked to the wrong original counts as 
 In Model Evaluation you can:
 
 - Compare two rules side by side (score each, then use the compare view).
-- Click **false negatives** to filter the grid to the misses. The Copy Graph follows and redraws those queries with their dashed lines, so you can click each one and see which signal fell short and by how much.
+- Click **false negatives** to filter the grid to the misses. The panel's graph follows and redraws those queries with their dashed lines, so you can click each one and see which signal fell short and by how much.
 - Slice by any field with **scenarios**. On DISC21, slicing by `transform_names` shows which edit types each signal survives.
 
 Without a truth field there is no evaluation. **Apply this rule** still writes `copy_of` and tells you how many queries got linked.
@@ -297,7 +298,7 @@ After find copies the grid shows only `copy_of` among the label fields; tick the
 ```
 operators/compute_signals.py   step 1: pHash field + two native similarity indexes
 operators/find_copies.py       step 2: candidates, rule, copy_of, native binary evaluation
-panels/copy_graph.py           loads the graph for the current view; actions (select, open, score)
+panels/image_link_lab.py       loads the graph for the current view; actions (select, open, score)
 engine.py                      FiftyOne glue shared by the operators and the panel
 core/                          pure Python: hashing, candidate gathering, the rule (pytest)
 js/src/                        the panel UI in React + VOODO: rule.ts mirrors core/rule.py,

@@ -1,13 +1,14 @@
 """
-Copy Graph panel.
+Image Link Lab panel.
 
 Python loads the graph for the queries in the current grid view and handles
-actions; the ``CopyGraphView`` React component (``js/src``) draws it with
+actions; the ``ImageLinkLabView`` React component (``js/src``) draws it with
 VOODO and applies the rule in the browser, so the sliders update the lines
 without a server round-trip.
 """
 import logging
 
+import fiftyone as fo
 import fiftyone.core.stages as fosg
 import fiftyone.operators as foo
 import fiftyone.operators.types as types
@@ -26,12 +27,12 @@ logger = logging.getLogger(__name__)
 _MODEL_EVALUATION_PANEL = "model_evaluation_panel_builtin"
 
 
-class CopyGraphPanel(foo.Panel):
+class ImageLinkLabPanel(foo.Panel):
     @property
     def config(self):
         return foo.PanelConfig(
-            name="copy_graph",
-            label="Copy Graph",
+            name="image_link_lab",
+            label="Image Link Lab",
             icon="hub",
             surfaces="grid",
             help_markdown=(
@@ -47,13 +48,15 @@ class CopyGraphPanel(foo.Panel):
         self._refresh(ctx)
 
     def on_change_view(self, ctx):
+        if _get_filter(ctx) and not _showing_filter(ctx):
+            # The user moved on (cleared the view bar, picked a saved view);
+            # the filter is gone with it
+            _set_filter(ctx, None)
+
         self._refresh(ctx, graph_only=True)
 
     def on_change_selected(self, ctx):
         ctx.panel.set_data("selected", [str(s) for s in (ctx.selected or [])])
-
-    def on_change_extended_selection(self, ctx):
-        ctx.panel.set_data("extended_selection", _extended_ids(ctx))
 
     # -- Methods exposed to the frontend --
 
@@ -99,14 +102,30 @@ class CopyGraphPanel(foo.Panel):
             )
 
     def filter_grid(self, ctx):
-        """Filters the grid to the given samples without changing the view,
-        the way the Embeddings panel does, so one click clears it."""
+        """Shows exactly the given samples in the grid, wherever they live,
+        and remembers the view to come back to."""
         ids = [str(s) for s in ctx.params.get("ids") or []]
-        if ids:
-            ctx.ops.show_samples(ids, use_extended_selection=True)
+        if not ids:
+            return
+
+        current = _get_filter(ctx)
+        # Keep the first base view across successive clicks, so clearing
+        # returns to where the user started, not to the previous family
+        base = current["base_view"] if current else ctx.view._serialize()
+        _set_filter(ctx, {"ids": ids, "base_view": base})
+        ctx.ops.set_view(ctx.dataset.select(ids, ordered=True))
 
     def clear_filter(self, ctx):
-        ctx.ops.set_extended_selection(clear=True)
+        """Puts the grid back to the view it showed before the filter."""
+        current = _get_filter(ctx)
+        if not current:
+            return
+
+        _set_filter(ctx, None)
+        if current["base_view"]:
+            ctx.ops.set_view(fo.DatasetView._build(ctx.dataset, current["base_view"]))
+        else:
+            ctx.ops.clear_view()
 
     def open_sample(self, ctx):
         sample_id = ctx.params.get("id")
@@ -125,7 +144,7 @@ class CopyGraphPanel(foo.Panel):
         return types.Property(
             types.Object(),
             view=types.View(
-                component="CopyGraphView",
+                component="ImageLinkLabView",
                 composite_view=True,
                 refresh=self.refresh,
                 score_rule=self.score_rule,
@@ -161,55 +180,60 @@ class CopyGraphPanel(foo.Panel):
                 },
             )
             ctx.panel.set_data("selected", [str(s) for s in (ctx.selected or [])])
+            current = _get_filter(ctx)
+            ctx.panel.set_data("filter", current["ids"] if current else None)
 
-        extended = _extended_ids(ctx)
-        if not graph_only:
-            ctx.panel.set_data("extended_selection", extended)
-        elif extended and ctx.panel.get_state("has_graph"):
-            # The grid was filtered by a click in the graph; the view itself
-            # hasn't changed, so keep drawing what's there
-            return
+        view = ctx.view
+        if _showing_filter(ctx):
+            # The grid is showing a family this panel asked for; the graph
+            # stays on the view the user was looking at before
+            if graph_only:
+                return
+
+            base = _get_filter(ctx)["base_view"]
+            view = fo.DatasetView._build(ctx.dataset, base) if base else ctx.dataset.view()
 
         try:
-            graph = (
-                engine.graph_payload(ctx, settings, view=_view_without_filter(ctx, extended))
-                if settings
-                else None
-            )
+            graph = engine.graph_payload(ctx, settings, view=view) if settings else None
         except Exception as e:
             logger.warning("Failed to load graph: %s", e)
             graph = None
 
-        ctx.panel.set_state("has_graph", bool(graph and graph["queries"]))
         ctx.panel.set_data("graph", graph)
 
 
-def _extended_ids(ctx):
-    """Returns the sample IDs in the App's extended selection, or None."""
-    selection = ctx.extended_selection
-    if isinstance(selection, dict):
-        selection = selection.get("selection")
-
-    if not selection:
-        return None
-
-    return [str(s) for s in selection]
+# The grid filter is kept in the execution store, not in panel state: panel
+# state is written by the browser after the response arrives, so a
+# ``set_view`` in the same response can fire ``on_change_view`` before the
+# state exists, and the graph would collapse to the filtered view
 
 
-def _view_without_filter(ctx, extended):
-    """The grid applies the extended selection as a ``Select`` stage on the
-    view. The graph should keep drawing the whole view while the grid is
-    filtered by a click in the graph, so that stage is dropped."""
-    view = ctx.view
-    if not extended:
-        return view
+def _filter_key(ctx):
+    return "filter:%s" % ctx.panel_id
 
-    wanted = set(extended)
-    base = ctx.dataset.view()
-    for stage in view._stages:
-        if isinstance(stage, fosg.Select) and set(map(str, stage.sample_ids)) == wanted:
-            continue
 
-        base = base.add_stage(stage)
+def _get_filter(ctx):
+    """Returns ``{"ids", "base_view"}`` for this panel's grid filter, or None."""
+    return engine.get_store(ctx).get(_filter_key(ctx))
 
-    return base
+
+def _set_filter(ctx, value):
+    store = engine.get_store(ctx)
+    if value is None:
+        store.delete(_filter_key(ctx))
+    else:
+        store.set(_filter_key(ctx), value)
+
+    ctx.panel.set_data("filter", value["ids"] if value else None)
+
+
+def _showing_filter(ctx):
+    """Whether the grid's view is exactly the ``Select`` this panel set."""
+    current = _get_filter(ctx)
+    stages = ctx.view._stages
+    return bool(
+        current
+        and len(stages) == 1
+        and isinstance(stages[0], fosg.Select)
+        and set(map(str, stages[0].sample_ids)) == set(current["ids"])
+    )

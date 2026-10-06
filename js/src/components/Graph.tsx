@@ -10,7 +10,7 @@ type Camera = { k: number; tx: number; ty: number };
 const MIN_K = 0.25;
 const MAX_K = 4;
 const FIT_FLOOR = 0.6;
-const CLICK_SLOP = 4;
+const CLICK_SLOP = 8;
 
 type Props = {
   model: Model;
@@ -25,6 +25,8 @@ type Props = {
   onNodeClick: (sampleId: string) => void;
   onNodeDoubleClick: (sampleId: string) => void;
   onBackgroundClick: () => void;
+  /** False when the user has hidden some line kinds, which changes what the strip of lone copies means */
+  allLinksShown: boolean;
   children?: React.ReactNode;
 };
 
@@ -41,6 +43,7 @@ const Graph = React.forwardRef<GraphHandle, Props>(function Graph(
     onNodeClick,
     onNodeDoubleClick,
     onBackgroundClick,
+    allLinksShown,
     children,
   },
   ref,
@@ -119,15 +122,19 @@ const Graph = React.forwardRef<GraphHandle, Props>(function Graph(
   const onPointerDown = (ev: React.PointerEvent) => {
     if (ev.button !== 0) return;
     drag.current = { x: ev.clientX, y: ev.clientY, tx: camera.tx, ty: camera.ty, moved: false };
-    (ev.currentTarget as Element).setPointerCapture(ev.pointerId);
   };
   const onPointerMove = (ev: React.PointerEvent) => {
     const d = drag.current;
     if (!d) return;
     const dx = ev.clientX - d.x;
     const dy = ev.clientY - d.y;
-    if (!d.moved && Math.hypot(dx, dy) < CLICK_SLOP) return;
-    d.moved = true;
+    if (!d.moved) {
+      if (Math.hypot(dx, dy) < CLICK_SLOP) return;
+      // Only now is it a drag: capture the pointer so the pan keeps going
+      // outside the canvas. Capturing earlier would retarget plain clicks
+      d.moved = true;
+      (ev.currentTarget as Element).setPointerCapture(ev.pointerId);
+    }
     setCamera((c) => ({ ...c, tx: d.tx + dx, ty: d.ty + dy }));
   };
   // Click handlers fire after pointerup; they check this to ignore the end of a drag
@@ -275,7 +282,9 @@ const Graph = React.forwardRef<GraphHandle, Props>(function Graph(
           {layout.singlesTop !== null && (
             <g>
               <text x={18} y={layout.singlesTop + 14} fill={TEXT_MUTED} fontSize={12}>
-                No links ({layout.singles.length}): nothing passed the rule, and no known original was missed
+                {allLinksShown
+                  ? `No links (${layout.singles.length}): nothing passed the rule, and no known original was missed`
+                  : `No lines of the selected kinds (${layout.singles.length})`}
               </text>
               {layout.singles.map(({ query, x, y }) => (
                 <Node
@@ -287,7 +296,7 @@ const Graph = React.forwardRef<GraphHandle, Props>(function Graph(
                   stroke={BORDER}
                   focused={focusNodes.has(query.id)}
                   dimmed={dimming && !focusNodes.has(query.id)}
-                  title={`Copy ${query.identity}: no links\nclick to show it in the grid`}
+                  title={`Copy ${query.identity}: no lines to draw\nclick to show it in the grid`}
                   onClick={guard(() => onNodeClick(query.id))}
                   onDoubleClick={() => onNodeDoubleClick(query.id)}
                   onHover={setHoverId}

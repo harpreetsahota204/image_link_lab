@@ -469,7 +469,7 @@ def _clear_label_field(dataset, field):
 
 
 def graph_payload(ctx, settings, view=None, max_queries=MAX_GRAPH_QUERIES):
-    """Builds the Copy Graph data for the queries in the current view.
+    """Builds the panel's graph data for the queries in a view.
 
     Args:
         ctx: an :class:`fiftyone.operators.ExecutionContext`
@@ -487,7 +487,7 @@ def graph_payload(ctx, settings, view=None, max_queries=MAX_GRAPH_QUERIES):
 
     id_field = settings.get("id_field")
     truth_field = settings.get("truth_field")
-    in_view = (view if view is not None else ctx.view).exists(field)
+    in_view = (ctx.view if view is None else view).exists(field)
     total = len(in_view)
     in_view = in_view.limit(max_queries)
 

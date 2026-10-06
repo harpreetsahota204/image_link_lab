@@ -3,7 +3,7 @@ Step 2: find each query's original and score the rule.
 
 Gathers candidates once (the slow part), applies the rule, writes
 ``copy_of`` and, if a truth field is set, a native binary evaluation. The
-Copy Graph panel calls the same :func:`engine.apply_rule` with the sliders'
+Image Link Lab panel calls the same :func:`engine.apply_rule` with the sliders'
 values, so re-scoring a new rule takes a second.
 """
 import fiftyone.operators as foo
@@ -22,7 +22,7 @@ from ..constants import (
 )
 from ..core import rule as ilr
 
-_PANEL_NAME = "copy_graph"
+_PANEL_NAME = "image_link_lab"
 _NONE = "__none__"
 
 
@@ -31,7 +31,7 @@ class FindCopies(foo.Operator):
     def config(self):
         return foo.OperatorConfig(
             name="find_copies",
-            label="Copy Graph: find copies",
+            label="Image Link Lab: find copies",
             description=(
                 "Links each query image to the original it was copied from, "
                 "using pHash and CLIP combined by a rule you set, and scores "
@@ -117,7 +117,7 @@ class FindCopies(foo.Operator):
             "rule_header",
             types.Header(
                 label="Rule",
-                description="A pair is a copy when the signals say so. Tune it live in the Copy Graph panel afterwards",
+                description="A pair is a copy when the signals say so. Tune it live in the Image Link Lab panel afterwards",
             ),
         )
         rule = saved.get("rule") or {}

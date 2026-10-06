@@ -31,7 +31,7 @@ export default function Setup({ status, onComputeSignals, onFindCopies }: Props)
   return (
     <Stack orientation={Orientation.Column} spacing={Spacing.Lg} align={Align.Center} style={{ padding: 32, maxWidth: 640, margin: "0 auto" }}>
       <Stack orientation={Orientation.Column} spacing={Spacing.Xs} align={Align.Center}>
-        <Text variant={TextVariant.HeadingSm}>Copy Graph</Text>
+        <Text variant={TextVariant.HeadingSm}>Image Link Lab</Text>
         <Text variant={TextVariant.BodySecondary} color={TextColor.Secondary} style={{ textAlign: "center" }}>
           Find which images are edited copies of which, using pixels (pHash) and meaning (CLIP) combined
           by a rule you control. Two steps, then the graph appears here.

@@ -5,7 +5,11 @@
 import { linkState, strength } from "./rule";
 import type { Edge, GraphData, LinkState, OriginalNode, QueryNode, Rule } from "./types";
 
-export type Counts = { right: number; wrong: number; missed: number; linked: number };
+/** Pairs per line state, plus how many copies have at least one link. */
+export type Counts = { right: number; wrong: number; missed: number; none: number; linked: number };
+
+/** What the graph draws until the user says otherwise. */
+export const DEFAULT_VISIBLE: LinkState[] = ["right", "wrong", "missed"];
 
 export type Family = {
   id: string;
@@ -16,10 +20,10 @@ export type Family = {
 
 export type Model = {
   edges: Edge[];
-  /** Edges worth drawing: links and misses, plus faint candidates if asked */
+  /** Edges whose state the user has switched on */
   visible: Edge[];
   families: Family[];
-  /** Queries with nothing to draw (no links, no missed original) */
+  /** Queries with no visible edge */
   singles: QueryNode[];
   counts: Counts;
 };
@@ -44,12 +48,10 @@ export function buildEdges(graph: GraphData, rule: Rule): Edge[] {
 }
 
 export function countStates(edges: Edge[]): Counts {
-  const counts: Counts = { right: 0, wrong: 0, missed: 0, linked: 0 };
+  const counts: Counts = { right: 0, wrong: 0, missed: 0, none: 0, linked: 0 };
   const linkedQueries = new Set<string>();
   for (const e of edges) {
-    if (e.state === "right") counts.right += 1;
-    else if (e.state === "wrong") counts.wrong += 1;
-    else if (e.state === "missed") counts.missed += 1;
+    counts[e.state] += 1;
     if (e.state === "right" || e.state === "wrong") linkedQueries.add(e.query.id);
   }
   counts.linked = linkedQueries.size;
@@ -81,13 +83,13 @@ class Groups {
   }
 }
 
-export function buildModel(graph: GraphData | null | undefined, rule: Rule, showAll: boolean): Model {
+export function buildModel(graph: GraphData | null | undefined, rule: Rule, visibleStates: LinkState[]): Model {
   if (!graph) {
     return { edges: [], visible: [], families: [], singles: [], counts: countStates([]) };
   }
 
   const edges = buildEdges(graph, rule);
-  const drawn = edges.filter((e) => e.state !== "none" || showAll);
+  const drawn = edges.filter((e) => visibleStates.includes(e.state));
 
   const groups = new Groups();
   for (const e of drawn) groups.union(`q:${e.query.id}`, `o:${e.original.id}`);
