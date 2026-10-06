@@ -1,0 +1,9 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# JS dependencies (js/dist stays tracked: FiftyOne loads the plugin from it)
+node_modules/
+.yarn/
