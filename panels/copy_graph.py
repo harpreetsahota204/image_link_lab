@@ -8,6 +8,7 @@ without a server round-trip.
 """
 import logging
 
+import fiftyone.core.stages as fosg
 import fiftyone.operators as foo
 import fiftyone.operators.types as types
 
@@ -50,6 +51,9 @@ class CopyGraphPanel(foo.Panel):
 
     def on_change_selected(self, ctx):
         ctx.panel.set_data("selected", [str(s) for s in (ctx.selected or [])])
+
+    def on_change_extended_selection(self, ctx):
+        ctx.panel.set_data("extended_selection", _extended_ids(ctx))
 
     # -- Methods exposed to the frontend --
 
@@ -94,14 +98,15 @@ class CopyGraphPanel(foo.Panel):
                 variant="success",
             )
 
-    def select_samples(self, ctx):
-        ids = [str(s) for s in ctx.params.get("ids") or []]
-        ctx.ops.set_selected_samples(ids)
-
-    def show_in_grid(self, ctx):
+    def filter_grid(self, ctx):
+        """Filters the grid to the given samples without changing the view,
+        the way the Embeddings panel does, so one click clears it."""
         ids = [str(s) for s in ctx.params.get("ids") or []]
         if ids:
-            ctx.ops.set_view(ctx.dataset.select(ids, ordered=True))
+            ctx.ops.show_samples(ids, use_extended_selection=True)
+
+    def clear_filter(self, ctx):
+        ctx.ops.set_extended_selection(clear=True)
 
     def open_sample(self, ctx):
         sample_id = ctx.params.get("id")
@@ -124,8 +129,8 @@ class CopyGraphPanel(foo.Panel):
                 composite_view=True,
                 refresh=self.refresh,
                 score_rule=self.score_rule,
-                select_samples=self.select_samples,
-                show_in_grid=self.show_in_grid,
+                filter_grid=self.filter_grid,
+                clear_filter=self.clear_filter,
                 open_sample=self.open_sample,
                 run_compute_signals=self.run_compute_signals,
                 run_find_copies=self.run_find_copies,
@@ -158,10 +163,54 @@ class CopyGraphPanel(foo.Panel):
             )
             ctx.panel.set_data("selected", [str(s) for s in (ctx.selected or [])])
 
+        extended = _extended_ids(ctx)
+        if not graph_only:
+            ctx.panel.set_data("extended_selection", extended)
+        elif extended and ctx.panel.get_state("has_graph"):
+            # The grid was filtered by a click in the graph; the view itself
+            # hasn't changed, so keep drawing what's there
+            return
+
         try:
-            graph = engine.graph_payload(ctx, settings) if settings else None
+            graph = (
+                engine.graph_payload(ctx, settings, view=_view_without_filter(ctx, extended))
+                if settings
+                else None
+            )
         except Exception as e:
             logger.warning("Failed to load graph: %s", e)
             graph = None
 
+        ctx.panel.set_state("has_graph", bool(graph and graph["queries"]))
         ctx.panel.set_data("graph", graph)
+
+
+def _extended_ids(ctx):
+    """Returns the sample IDs in the App's extended selection, or None."""
+    selection = ctx.extended_selection
+    if isinstance(selection, dict):
+        selection = selection.get("selection")
+
+    if not selection:
+        return None
+
+    return [str(s) for s in selection]
+
+
+def _view_without_filter(ctx, extended):
+    """The grid applies the extended selection as a ``Select`` stage on the
+    view. The graph should keep drawing the whole view while the grid is
+    filtered by a click in the graph, so that stage is dropped."""
+    view = ctx.view
+    if not extended:
+        return view
+
+    wanted = set(extended)
+    base = ctx.dataset.view()
+    for stage in view._stages:
+        if isinstance(stage, fosg.Select) and set(map(str, stage.sample_ids)) == wanted:
+            continue
+
+        base = base.add_stage(stage)
+
+    return base

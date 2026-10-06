@@ -466,12 +466,13 @@ def _clear_label_field(dataset, field):
 # -- Graph --
 
 
-def graph_payload(ctx, settings, max_queries=MAX_GRAPH_QUERIES):
+def graph_payload(ctx, settings, view=None, max_queries=MAX_GRAPH_QUERIES):
     """Builds the Copy Graph data for the queries in the current view.
 
     Args:
         ctx: an :class:`fiftyone.operators.ExecutionContext`
         settings: the ``find_copies`` settings
+        view (None): the view to draw; defaults to ``ctx.view``
         max_queries (40): the most queries to include
 
     Returns:
@@ -484,7 +485,7 @@ def graph_payload(ctx, settings, max_queries=MAX_GRAPH_QUERIES):
 
     id_field = settings.get("id_field")
     truth_field = settings.get("truth_field")
-    in_view = ctx.view.exists(field)
+    in_view = (view if view is not None else ctx.view).exists(field)
     total = len(in_view)
     in_view = in_view.limit(max_queries)
 

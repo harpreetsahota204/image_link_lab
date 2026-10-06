@@ -2,6 +2,7 @@ import { getSampleSrc } from "@fiftyone/state";
 import {
   Align,
   Button,
+  Justify,
   Orientation,
   Pill,
   Size,
@@ -18,28 +19,15 @@ import { signalResults } from "../rule";
 import type { Edge, Rule } from "../types";
 
 type Props = {
-  edge: Edge | null;
+  edge: Edge;
   rule: Rule;
   onShowPair: (ids: string[]) => void;
   onOpen: (id: string) => void;
+  onClose: () => void;
 };
 
-export default function Evidence({ edge, rule, onShowPair, onOpen }: Props) {
-  if (!edge) {
-    return (
-      <Stack orientation={Orientation.Column} spacing={Spacing.Sm}>
-        <Text variant={TextVariant.HeadingXs}>Evidence</Text>
-        <Text variant={TextVariant.BodySecondary} color={TextColor.Secondary}>
-          Click a line to see why it's there: both images, each signal against its limit, and the verdict.
-        </Text>
-        <Text variant={TextVariant.BodySecondary} color={TextColor.Secondary}>
-          Click an image to select it in the grid; double-click to open it.
-        </Text>
-        <Legend />
-      </Stack>
-    );
-  }
-
+/** Why one line is there: both images, each signal against its limit, the verdict. */
+export default function Evidence({ edge, rule, onShowPair, onOpen, onClose }: Props) {
   const results = signalResults(edge.candidate, rule);
   const pillColor =
     edge.state === "right" ? TextColor.Success
@@ -49,9 +37,9 @@ export default function Evidence({ edge, rule, onShowPair, onOpen }: Props) {
 
   return (
     <Stack orientation={Orientation.Column} spacing={Spacing.Md}>
-      <Stack orientation={Orientation.Row} spacing={Spacing.Sm} align={Align.Center}>
-        <Text variant={TextVariant.HeadingXs}>Evidence</Text>
+      <Stack orientation={Orientation.Row} spacing={Spacing.Sm} align={Align.Center} justify={Justify.Between}>
         <Pill isStatus size={Size.Sm} color={pillColor}>{STATE_LABELS[edge.state]}</Pill>
+        <Button size={Size.Xs} variant={Variant.Borderless} onClick={onClose} aria-label="Close evidence">✕</Button>
       </Stack>
 
       <Stack orientation={Orientation.Row} spacing={Spacing.Md} align={Align.Start}>
@@ -170,25 +158,4 @@ function verdict(edge: Edge, rule: Rule, results: { phash?: boolean; clip?: bool
   }
   if (edge.state === "missed") return `${why} This is the true original, so the rule missed it.`;
   return `${why} It is not the true original, so leaving it unlinked is correct.`;
-}
-
-function Legend() {
-  const row = (state: Edge["state"], text: string, dashed = false) => (
-    <Stack key={state} orientation={Orientation.Row} spacing={Spacing.Sm} align={Align.Center}>
-      <svg width={28} height={6}>
-        <line x1={0} y1={3} x2={28} y2={3} stroke={STATE_COLORS[state]} strokeWidth={3} strokeDasharray={dashed ? "5 4" : undefined} />
-      </svg>
-      <Text variant={TextVariant.Caption} color={TextColor.Secondary}>{text}</Text>
-    </Stack>
-  );
-  return (
-    <Stack orientation={Orientation.Column} spacing={Spacing.Xs} style={{ marginTop: 8 }}>
-      {row("right", "right link: the rule linked a copy to its true original")}
-      {row("wrong", "wrong link: linked, but not the true original")}
-      {row("missed", "missed: the true original, not linked", true)}
-      <Text variant={TextVariant.Caption} color={TextColor.Secondary}>
-        Thick lines pass both signals; thin lines pass one.
-      </Text>
-    </Stack>
-  );
 }

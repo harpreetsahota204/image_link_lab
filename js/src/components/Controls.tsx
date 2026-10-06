@@ -20,6 +20,7 @@ import React from "react";
 import type { Counts } from "../graph";
 import { describeRule, usesClip, usesPhash } from "../rule";
 import type { Rule } from "../types";
+import { HelpHint } from "./Overlays";
 
 export const PHASH_SLIDER_MAX = 32;
 export const CLIP_SLIDER_MIN = 0.5;
@@ -32,9 +33,13 @@ type Props = {
   showAll: boolean;
   onShowAll: (value: boolean) => void;
   counts: Counts;
+  families: number;
   hasTruth: boolean;
   shown: number;
   total: number;
+  /** Number of images the grid is filtered to by a click in the graph, or 0 */
+  filtered: number;
+  onClearFilter: () => void;
   scoring: boolean;
   onScore: () => void;
 };
@@ -45,9 +50,12 @@ export default function Controls({
   showAll,
   onShowAll,
   counts,
+  families,
   hasTruth,
   shown,
   total,
+  filtered,
+  onClearFilter,
   scoring,
   onScore,
 }: Props) {
@@ -90,7 +98,7 @@ export default function Controls({
           <RadioGroup
             size={Size.Sm}
             options={[
-              { value: "any", label: "Either signal is enough" },
+              { value: "any", label: "Either is enough" },
               { value: "all", label: "Both must agree" },
             ]}
             value={rule.combine}
@@ -146,8 +154,15 @@ export default function Controls({
             <Pill size={Size.Sm}>{counts.linked} of {shown} linked</Pill>
           )}
           <Text variant={TextVariant.Caption} color={TextColor.Secondary}>
-            {total > shown ? `showing ${shown} of ${total} copies in the grid` : `${shown} copies in the grid`}
+            {total > shown ? `${shown} of ${total} copies in the grid` : `${shown} copies in the grid`}
+            {families > 0 ? ` · ${families} ${families === 1 ? "family" : "families"}` : ""}
           </Text>
+          {filtered > 0 && (
+            <Pill size={Size.Sm} color={TextColor.Accent} onRemove={onClearFilter}>
+              grid filtered to {filtered} {filtered === 1 ? "image" : "images"}
+            </Pill>
+          )}
+          <HelpHint />
         </Stack>
         <Stack orientation={Orientation.Row} spacing={Spacing.Sm} align={Align.Center}>
           <Text variant={TextVariant.Caption} color={TextColor.Secondary}>{describeRule(rule)}</Text>

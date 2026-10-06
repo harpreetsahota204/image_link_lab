@@ -30,7 +30,7 @@ Requires `fiftyone>=1.22.1`. CLIP runs on CPU but is much faster on a GPU. The J
 1. Open a dataset and add the **Copy Graph** panel (the `+` next to Samples, under Custom).
 2. Click **Compute signals**, keep both boxes ticked, execute. Runs in the background; a minute per 10,000 images for pHash plus CLIP time.
 3. Click **Find copies**. Pick the query images (the ones to explain), where their originals might be, optionally an ID field and a truth field, and execute.
-4. The graph appears. Move the sliders. Click a line.
+4. The graph appears. Move the sliders. Click a line for the evidence; click an image to see its family in the grid.
 5. Click **Score this rule** to record an evaluation and open Model Evaluation.
 
 ## Quick start (SDK)
@@ -145,7 +145,9 @@ The panel follows the grid: whatever queries are in the current view (up to 40 a
 - **Families.** Images joined by lines are laid out as a star: originals in the middle, copies around them. A loose rule joins families through wrong links; you will see red lines bridging two stars.
 - **No links.** Queries with nothing to draw sit in a strip at the bottom. For a distractor with no original, that is the correct outcome.
 
-Click a node to select that image in the grid. Double-click to open it in the sample modal.
+**Moving around.** Scroll to pan, ⌘/Ctrl + scroll (or pinch) to zoom, drag to move, and use the +, − and Fit buttons in the corner. The graph refits itself when a different set of copies comes into view.
+
+**Clicking an image filters the grid** to that image and everything it has a line to: an original and all its copies, or a copy and the originals it was linked to or should have been. The graph stays whole, with the family highlighted and the rest dimmed, and a chip in the toolbar shows how many images the grid is showing. Click the same image again, click the background, press Esc, or use the chip's × to clear it. This is the same mechanism the Embeddings panel uses for a lasso, so the grid's own clear button works too and your view stages are untouched. Double-click an image to open it in the sample modal.
 
 Without a truth field, every link is drawn green and nothing is dashed. The colors mean "linked," not "right."
 
@@ -169,7 +171,7 @@ The DISC21 edits are deliberately brutal (heavy crops, overlays, blends), so rec
 
 ### 7. The evidence pane
 
-Click a line. The pane shows the copy and the original side by side, then one row per signal:
+Click a line. A pane slides in over the right of the graph with the copy and the original side by side, then one row per signal:
 
 ```
 pHash   pixels    30 bits differ    limit ≤ 10    fails
@@ -178,7 +180,7 @@ CLIP    meaning   0.731 similar     limit ≥ 0.90  fails
 
 and a verdict in a sentence: *Not linked: pHash and CLIP are outside the limit. This is the true original, so the rule missed it.* Every statement can be checked against the numbers above it; there is no model deciding behind the scenes.
 
-**Show pair in grid** filters the grid to just these two images. **Open copy** opens the query in the modal.
+**Show pair in grid** filters the grid to just these two images (clear it like any other click filter). **Open copy** opens the query in the modal. Close the pane with ✕, Esc, or a click on the background. The legend for line colors and thickness sits in the corner of the canvas, and the **?** next to the counts lists every interaction.
 
 ### 8. Scoring, and what "evaluation" means here
 

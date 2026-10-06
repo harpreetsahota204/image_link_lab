@@ -57,13 +57,15 @@ export type PanelData = {
   status?: Status;
   graph?: GraphData | null;
   selected?: string[];
+  /** Sample IDs the grid is currently filtered to by this panel, or null */
+  extended_selection?: string[] | null;
 };
 
 export type PanelMethods = {
   refresh: string;
   score_rule: string;
-  select_samples: string;
-  show_in_grid: string;
+  filter_grid: string;
+  clear_filter: string;
   open_sample: string;
   run_compute_signals: string;
   run_find_copies: string;
