@@ -58,13 +58,19 @@ def get_store(ctx):
 
 
 def load_settings(ctx):
-    """Returns the saved ``find_copies`` settings, or None."""
-    return get_store(ctx).get(SETTINGS_KEY)
+    """Returns the saved ``find_copies`` settings, or None.
+
+    Settings live in ``dataset.info`` so they travel with the dataset: a
+    clone, an export or a Hub upload keeps the panel working without a
+    re-run.
+    """
+    return ctx.dataset.info.get(SETTINGS_KEY)
 
 
 def save_settings(ctx, settings):
-    """Saves the ``find_copies`` settings."""
-    get_store(ctx).set(SETTINGS_KEY, settings)
+    """Saves the ``find_copies`` settings on the dataset."""
+    ctx.dataset.info[SETTINGS_KEY] = settings
+    ctx.dataset.save()
 
 
 # -- Scopes --

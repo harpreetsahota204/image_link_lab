@@ -4,7 +4,7 @@ Image Link Lab constants.
 
 PLUGIN_URI = "@harpreetsahota/image_link_lab"
 STORE_NAME = "image_link_lab"
-SETTINGS_KEY = "settings"
+SETTINGS_KEY = "image_link_lab"
 
 # Signals
 PHASH_FIELD = "phash"

@@ -232,11 +232,41 @@ The table in section 6 is these numbers in disguise: right / (right + wrong on d
 
 One definition to keep in mind: **a copy linked to the wrong original counts as a miss, not a false positive.** The evaluation asks "did we find the true original?" and the answer is no. The panel's **wrong** count is where those links show up, so read the two together.
 
-In Model Evaluation you can:
+#### Reading Model Evaluation for this task
 
-- Compare two rules side by side (score each, then use the compare view).
-- Click **false negatives** to filter the grid to the misses. The panel's graph follows and redraws those queries with their dashed lines, so you can click each one and see which signal fell short and by how much.
-- Slice by any field with **scenarios**. On DISC21, slicing by `transform_names` shows which edit types each signal survives.
+The graph is for tuning; Model Evaluation is for deciding. Its 2×2 confusion matrix is the whole story:
+
+| | predicted `copy` | predicted `unique` |
+|---|---|---|
+| truth `copy` | **TP**: found, linked to the right original | **FN**: missed, or linked to the wrong one |
+| truth `unique` | **FP**: a distractor got linked to something | **TN**: a distractor correctly left alone |
+
+The matrix counts *queries*; the chips in the panel count *pairs*. A copy linked to the wrong original is one FN here, but one red line plus one dashed line there.
+
+The loop, start to finish:
+
+1. **Score** the starting rule. Model Evaluation opens; select `copies_phash10_or_clip90`. Precision 98%, recall 20%.
+2. Click the **FN cell** (truth `copy`, predicted `unique`). The grid filters to the misses. The graph follows the grid and redraws them, 40 at a time, with dashed amber lines to their originals. Click a line: both signals failed, and by how much. That tells you which slider might help.
+3. Loosen pHash to 14, watch the red lines appear, **Score** again. A second key, `copies_phash14_or_clip90`.
+4. Open one and **Compare** it with the other: precision 98% → 66%, recall 20% → 25%. Now it's a decision, not a feeling.
+5. Mark the rule you keep as **Reviewed** in the panel's status menu and leave a note. Delete the rest if you like: `dataset.delete_evaluation(key)`.
+
+The **FP cell** is the other one worth clicking: distractors the rule linked, which are look-alikes, CLIP's failure mode. Comparing the pHash-only and CLIP-only runs is how you see which edits each signal survives.
+
+Two practical notes:
+
+- Model Evaluation opens as a tab in the panel's space. Drag it beside the grid so the grid, the graph and the matrix are all visible; otherwise clicking a cell changes a grid you can't see.
+- Breaking the numbers down by edit type (`transform_names`) uses Model Evaluation's **scenarios**, which is a FiftyOne Enterprise feature. In open-source FiftyOne, filter the grid by `transform_names` and read the chips, or do it in Python:
+
+```python
+from fiftyone import ViewField as F
+
+for key in dataset.list_evaluations():
+    print(key, dataset.load_evaluation_results(key).metrics())
+
+mirrored = dataset.match(F("transform_names").contains("hflip"))
+mirrored.load_evaluation_results("copies_phash10_or_clip90").print_report()
+```
 
 Without a truth field there is no evaluation. **Apply this rule** still writes `copy_of` and tells you how many queries got linked.
 
