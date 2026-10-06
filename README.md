@@ -304,7 +304,7 @@ js/src/                        the panel UI in React + VOODO: rule.ts mirrors co
 
 The rule exists twice on purpose: in Python for the operators and in TypeScript so the sliders can run it in the browser. `tests/fixtures/rule_cases.json` is shared by both test suites, so they can't drift.
 
-See `DESIGN.md` for the design and the native-versus-custom table.
+Everything else is native FiftyOne: CLIP comes from `compute_similarity`, the pHash bits are registered as a second similarity index, results are plain `Classification` fields, scoring is `evaluate_classifications`, and rule history lives in evaluation runs. The panel talks to the App through `ctx.ops` (select samples, set the view, open a sample, open Model Evaluation) and opens the operator forms with `ctx.prompt`.
 
 ```bash
 # Tests
