@@ -56,16 +56,6 @@ fiftyone plugins download https://github.com/harpreetsahota204/image_link_lab
 fiftyone plugins requirements @harpreetsahota/image_link_lab --install
 ```
 
-For development, clone the repo and symlink it into your plugins directory instead:
-
-```bash
-git clone https://github.com/harpreetsahota204/image_link_lab.git
-ln -s "$(pwd)/image_link_lab" "$(python -c 'import fiftyone as fo; print(fo.config.plugins_dir)')/@harpreetsahota/image_link_lab"
-pip install -r image_link_lab/requirements.txt
-```
-
-Requires `fiftyone>=1.22.1`. CLIP runs on CPU but is much faster on a GPU. The JS bundle (`js/dist/index.umd.js`) is committed, so no build step is needed; to rebuild after editing `js/src`, run `cd js && yarn install && yarn build`.
-
 ## Quick start (App)
 
 1. Open a dataset and add the **Image Link Lab** panel (the `+` next to Samples, under Custom).
@@ -163,6 +153,10 @@ Each signal has a limit you set: the most bits pHash may differ by, and the leas
 
 ### 3. Step 1: Compute signals
 
+<p align="center">
+  <img src="assets/compute_signals.gif" alt="Running the Compute signals operator from the Image Link Lab panel"/>
+</p>
+
 What it writes:
 
 | Where | What |
@@ -174,6 +168,10 @@ What it writes:
 It runs delegated by default, so launch an orchestrator (`fiftyone delegated launch`) or choose "Execute now" in the form. Already-computed signals are left alone unless you tick them.
 
 ### 4. Step 2: Find copies
+
+<p align="center">
+  <img src="assets/find_copies.gif" alt="Filling in the Find copies form and running it from the Image Link Lab panel"/>
+</p>
 
 The form has two sections.
 
@@ -415,11 +413,6 @@ The rule exists twice on purpose: in Python for the operators and in TypeScript 
 
 Everything else is native FiftyOne: CLIP comes from `compute_similarity`, the pHash bits are registered as a second similarity index, results are plain `Classification` fields, scoring is `evaluate_classifications`, and rule history lives in evaluation runs. The panel talks to the App through `ctx.ops` (select samples, set the view, open a sample, open Model Evaluation) and opens the operator forms with `ctx.prompt`.
 
-```bash
-# Tests
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests -q
-cd js && yarn typecheck && yarn test
-```
 
 ## License
 
