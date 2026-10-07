@@ -1,5 +1,41 @@
 # Image Link Lab
 
+<div align="center">
+<p align="center">
+
+<!-- prettier-ignore -->
+<img src="https://user-images.githubusercontent.com/25985824/106288517-2422e000-6216-11eb-871d-26ad2e7b1e59.png" height="55px"> &nbsp;
+<img src="https://user-images.githubusercontent.com/25985824/106288518-24bb7680-6216-11eb-8f10-60052c519586.png" height="50px">
+
+**The open-source tool for building high-quality datasets and computer vision
+models**
+
+---
+
+<!-- prettier-ignore -->
+<a href="https://voxel51.com/fiftyone?utm_source=harpreet-gh">Website</a> •
+<a href="https://docs.voxel51.com?utm_source=harpreet-gh">Docs</a> •
+<a href="https://colab.research.google.com/github/voxel51/fiftyone-examples/blob/master/examples/quickstart.ipynb?utm_source=harpreet-gh">Try it Now</a> •
+<a href="https://docs.voxel51.com/getting_started_guides/index.html?utm_source=harpreet-gh">Getting Started Guides</a> •
+<a href="https://docs.voxel51.com/tutorials/index.html?utm_source=harpreet-gh">Tutorials</a> •
+<a href="https://voxel51.com/blog/?utm_source=harpreet-gh">Blog</a> •
+<a href="https://discord.gg/fiftyone-community?utm_source=harpreet-gh">Community</a>
+
+[![Discord](https://img.shields.io/badge/Discord-7289DA?logo=discord&logoColor=white)](https://discord.gg/fiftyone-community)
+[![Hugging Face](https://img.shields.io/badge/Hugging_Face-purple?style=flat&logo=huggingface)](https://huggingface.co/Voxel51)
+[![Voxel51 Blog](https://img.shields.io/badge/Voxel51_Blog-ff6d04?style=flat)](https://voxel51.com/blog)
+[![Newsletter](https://img.shields.io/badge/Newsletter-BE5B25?logo=mail.ru&logoColor=white)](https://share.hsforms.com/1zpJ60ggaQtOoVeBqIZdaaA2ykyk)
+[![LinkedIn](https://img.shields.io/badge/In-white?style=flat&label=Linked&labelColor=blue)](https://www.linkedin.com/company/voxel51)
+[![Twitter](https://img.shields.io/badge/Twitter-000000?logo=x&logoColor=white)](https://x.com/voxel51)
+[![Medium](https://img.shields.io/badge/Medium-12100E?logo=medium&logoColor=white)](https://medium.com/voxel51)
+
+</p>
+</div>
+
+<p align="center">
+  <img src="assets/image_link_lab.gif" alt="Image Link Lab demo"/>
+</p>
+
 Find edited copies of images, see the links as a graph, and read the evidence behind every one.
 
 Two signals do the finding: **pHash** (how the pixels are laid out) and **CLIP** (what the picture shows). A rule you control combines them. The **Image Link Lab** panel draws the copies in your grid as nodes and the links as lines, updates as you move the sliders, and tells you in one sentence why each link is there. If you know the true originals, it scores the rule with FiftyOne's native evaluation so you can compare rules in Model Evaluation.
@@ -33,7 +69,7 @@ Requires `fiftyone>=1.22.1`. CLIP runs on CPU but is much faster on a GPU. The J
 ## Quick start (App)
 
 1. Open a dataset and add the **Image Link Lab** panel (the `+` next to Samples, under Custom).
-2. Click **Compute signals**, keep both boxes ticked, execute. Runs in the background; a minute per 10,000 images for pHash plus CLIP time.
+2. Click **Compute signals**, keep both boxes ticked, execute. It runs in the background. pHash takes about a minute per 10,000 images, plus CLIP time.
 3. Click **Find copies**. Pick the query images (the ones to explain), where their originals might be, optionally an ID field and a truth field, and execute.
 4. The graph appears. Move the sliders. Click a line for the evidence; click an image to see its family in the grid.
 5. Click **Score this rule** to record an evaluation and open Model Evaluation.
@@ -93,7 +129,7 @@ Run `find_copies` again with a different rule and the candidates are reused, so 
 
 ### 1. The problem
 
-Image collections are full of edited copies of the same picture: cropped, mirrored, recolored, blurred, re-compressed, covered in text or emoji. Finding which image is a copy of which matters in more places than it seems:
+Image collections are full of edited copies of the same picture: cropped, mirrored, recolored, blurred, re-compressed, covered in text or emoji. Knowing which image is a copy of which matters in four places:
 
 - **Train/test leakage.** A mirrored copy of a training image in your test set inflates your metrics.
 - **Labeling cost.** You pay to label the same picture several times.
@@ -105,7 +141,7 @@ Image collections are full of edited copies of the same picture: cropped, mirror
   <img alt="One original and five edited copies on five different devices; exact-duplicate search finds none of them." src="assets/ll_01_problem.png">
 </picture>
 
-FiftyOne already finds byte-identical files (`compute_exact_duplicates`) and near-duplicates by a single embedding (`compute_near_duplicates`, the Similarity Search panel). What it doesn't do is combine two different kinds of similarity with a rule you control, and show you which image is linked to which and why. That gap is what this plugin fills.
+FiftyOne already finds byte-identical files (`compute_exact_duplicates`) and near-duplicates by a single embedding (`compute_near_duplicates`, the Similarity Search panel). It doesn't combine two different kinds of similarity with a rule you control, and it doesn't show you which image is linked to which and why. This plugin does both.
 
 ### 2. The idea: pixels versus meaning
 
@@ -118,7 +154,7 @@ Each signal has a blind spot the other doesn't. The plugin computes both for eve
 - **Either signal is enough** (`any`): link the pair if pHash *or* CLIP passes. More links, more wrong ones.
 - **Both must agree** (`all`): link only if both pass. Fewer links, almost all right.
 
-Each signal has a limit you set: the most bits pHash may differ by, and the least similarity CLIP must reach. Moving a limit is the whole game, and the graph shows you the consequences as you move it.
+Each signal has a limit you set: the most bits pHash may differ by, and the least similarity CLIP must reach. Moving a limit is the whole game, and the graph redraws as you drag.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/dark/ll_02_signals.png">
@@ -191,7 +227,7 @@ What to expect on the demo dataset (DISC21: 1,000 edited queries, 5,000 original
 | pHash ≤ 10 and CLIP ≥ 0.90 | 21 | 0 | 479 |
 | pHash ≤ 14 or CLIP ≥ 0.90 | 126 | 161 | 374 |
 
-Read the last two rows together: tightening to "both must agree" removes every wrong link and most right ones; loosening pHash by 4 bits adds 25 right links and 158 wrong ones (precision drops from 98% to 66%). There is no setting that gets everything, and the point of the panel is to see where the trade-off sits for your data, not to hide it behind one number.
+Read the last two rows together: tightening to "both must agree" removes every wrong link and most right ones; loosening pHash by 4 bits adds 25 right links and 158 wrong ones (precision drops from 98% to 66%). No setting gets everything. The panel shows where the trade-off sits for your data instead of hiding it behind one number.
 
 The DISC21 edits are deliberately brutal (heavy crops, overlays, blends), so recall is low across the board. On a collection of ordinary re-uploads, pHash alone will catch most copies.
 
@@ -209,7 +245,7 @@ pHash   pixels    30 bits differ    limit ≤ 10    fails
 CLIP    meaning   0.731 similar     limit ≥ 0.90  fails
 ```
 
-and a verdict in a sentence: *Not linked: pHash and CLIP are outside the limit. This is the true original, so the rule missed it.* Every statement can be checked against the numbers above it; there is no model deciding behind the scenes.
+and a verdict in a sentence: *Not linked: pHash and CLIP are outside the limit. This is the true original, so the rule missed it.* You can check every statement against the numbers above it. No model decides behind the scenes.
 
 **Show pair in grid** filters the grid to just these two images (clear it like any other click filter). **Open copy** opens the query in the modal. Close the pane with ✕, Esc, or a click on the background. The **?** next to the chips lists every interaction, including line thickness (thick passes both signals, thin passes one).
 
@@ -228,13 +264,13 @@ From those two labels FiftyOne computes the usual numbers:
 - **Recall**: of the queries that really are copies, what fraction the rule found. High recall means few misses.
 - **F1**: the balance of the two.
 
-The table in section 6 is these numbers in disguise: right / (right + wrong on distractors) is precision; right / 500 is recall.
+The table in section 6 reports the same numbers: right / (right + wrong on distractors) is precision; right / 500 is recall.
 
-One definition to keep in mind: **a copy linked to the wrong original counts as a miss, not a false positive.** The evaluation asks "did we find the true original?" and the answer is no. The panel's **wrong** count is where those links show up, so read the two together.
+**A copy linked to the wrong original counts as a miss, not a false positive.** The evaluation asks "did we find the true original?" and the answer is no. The panel's **wrong** count is where those links show up, so read the two together.
 
 #### Reading Model Evaluation for this task
 
-The graph is for tuning; Model Evaluation is for deciding. Its 2×2 confusion matrix is the whole story:
+The graph is for tuning; Model Evaluation is for deciding. Read its 2×2 confusion matrix:
 
 | | predicted `copy` | predicted `unique` |
 |---|---|---|
@@ -248,7 +284,7 @@ The loop, start to finish:
 1. **Score** the starting rule. Model Evaluation opens; select `copies_phash10_or_clip90`. Precision 98%, recall 20%.
 2. Click the **FN cell** (truth `copy`, predicted `unique`). The grid filters to the misses. The graph follows the grid and redraws them, 40 at a time, with dashed amber lines to their originals. Click a line: both signals failed, and by how much. That tells you which slider might help.
 3. Loosen pHash to 14, watch the red lines appear, **Score** again. A second key, `copies_phash14_or_clip90`.
-4. Open one and **Compare** it with the other: precision 98% → 66%, recall 20% → 25%. Now it's a decision, not a feeling.
+4. Open one and **Compare** it with the other: precision 98% → 66%, recall 20% → 25%.
 5. Mark the rule you keep as **Reviewed** in the panel's status menu and leave a note. Delete the rest if you like: `dataset.delete_evaluation(key)`.
 
 The **FP cell** is the other one worth clicking: distractors the rule linked, which are look-alikes, CLIP's failure mode. Comparing the pHash-only and CLIP-only runs is how you see which edits each signal survives.
